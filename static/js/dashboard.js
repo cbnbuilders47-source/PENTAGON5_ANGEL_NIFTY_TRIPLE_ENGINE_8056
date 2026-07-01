@@ -63,8 +63,8 @@ updateClock();
 function drawSparkline(candles) {
   const canvas = document.getElementById("nifty-sparkline");
   if (!canvas) return;
-  const w = canvas.offsetWidth || 160;
-  const h = 28;
+  const w = canvas.offsetWidth || 140;
+  const h = 32;
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext("2d");
@@ -257,10 +257,12 @@ function updateEngineIntelligence(name, intel, livePos) {
   const decEl = panel.querySelector(".engine-decision");
   if (decEl) {
     decEl.textContent = intel.decision || "WAIT";
+    const d = intel.decision || "WAIT";
     decEl.className = "engine-decision " + (
-      intel.decision?.startsWith("WOULD_BUY") ? "dec-signal" :
-      intel.decision === "WOULD_EXIT" ? "dec-exit" :
-      intel.decision === "WAIT" ? "dec-wait" : "dec-wait"
+      d.startsWith("WOULD_BUY") ? "dec-signal" :
+      d === "WOULD_EXIT" ? "dec-exit" :
+      d === "BLOCKED" ? "dec-exit" :
+      d === "WAIT" ? "dec-wait" : "dec-wait"
     );
   }
 
@@ -302,19 +304,26 @@ async function refreshTimeline() {
     const phase = data.current_phase;
     const idx = PHASE_ORDER.indexOf(phase);
 
+    const labels = {
+      OFFLINE: "Prep", PRE_MARKET: "Analysis", BIAS_LOCKED: "Bias Lock",
+      TRADING: "Trading Running", NO_NEW_ENTRIES: "No New Entries",
+      FORCE_EXIT: "Force Exit", PREWATCH: "Pre-Watch", SHUTDOWN: "Shutdown",
+    };
+    const nextText = (labels[phase] || phase) + (data.new_entries_allowed ? " · Entries OK" : "");
+
     document.querySelectorAll(".tl-item").forEach((el) => {
       const p = el.dataset.phase;
       const pIdx = PHASE_ORDER.indexOf(p);
-      el.classList.remove("active", "done");
+      el.classList.remove("active", "done", "future");
       if (p === phase) el.classList.add("active");
       else if (pIdx >= 0 && pIdx < idx) el.classList.add("done");
+      else if (pIdx > idx) el.classList.add("future");
     });
 
     const nextEl = document.getElementById("next-event");
-    if (nextEl) {
-      const labels = { OFFLINE: "Prep", PRE_MARKET: "Analysis", BIAS_LOCKED: "Bias Lock", TRADING: "Trading Running", NO_NEW_ENTRIES: "No New Entries", FORCE_EXIT: "Force Exit", PREWATCH: "Pre-Watch", SHUTDOWN: "Shutdown" };
-      nextEl.textContent = (labels[phase] || phase) + (data.new_entries_allowed ? " · Entries OK" : "");
-    }
+    if (nextEl) nextEl.textContent = nextText;
+    const stripNext = document.getElementById("strip-next-event");
+    if (stripNext) stripNext.textContent = nextText;
   } catch { /* silent */ }
 }
 
@@ -323,8 +332,8 @@ async function refreshTimeline() {
 function setupCanvas(canvas) {
   const wrap = canvas.closest(".chart-wrap") || canvas.parentElement;
   const dpr = window.devicePixelRatio || 1;
-  const w = Math.max((wrap?.clientWidth || 280) - 46, 120);
-  const h = 120;
+  const w = Math.max((wrap?.clientWidth || 280) - 40, 120);
+  const h = canvas.offsetHeight || parseInt(getComputedStyle(canvas).height, 10) || 220;
   canvas.width = w * dpr;
   canvas.height = h * dpr;
   canvas.style.width = w + "px";
@@ -341,8 +350,8 @@ function drawCandles(symbol, candles) {
   ctx.clearRect(0, 0, w, h);
 
   if (!candles.length) {
-    ctx.fillStyle = "#444";
-    ctx.font = "10px sans-serif";
+    ctx.fillStyle = "#5a5a6e";
+    ctx.font = "12px JetBrains Mono, monospace";
     ctx.textAlign = "center";
     ctx.fillText("Awaiting live ticks", w / 2, h / 2);
     if (cfg.ltp) cfg.ltp.textContent = "—";

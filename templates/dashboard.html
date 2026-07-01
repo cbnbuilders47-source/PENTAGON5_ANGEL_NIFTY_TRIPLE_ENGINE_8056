@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{{ app_name }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/css/dashboard.css" />
 </head>
 <body class="terminal">
@@ -27,7 +30,7 @@
         <span id="nifty-ltp" class="nifty-ltp">—</span>
         <span id="nifty-change" class="nifty-change neutral">—</span>
       </div>
-      <canvas id="nifty-sparkline" class="sparkline" height="28"></canvas>
+      <canvas id="nifty-sparkline" class="sparkline" height="32"></canvas>
     </div>
 
     <div class="hdr-bullbear">
@@ -68,6 +71,7 @@
     <div class="strip-item"><span class="si-lbl">TODAY UNREALIZED P&amp;L</span><span id="strip-unrealized" class="si-val neutral">₹0.00</span></div>
     <div class="strip-item highlight"><span class="si-lbl">COMBINED P&amp;L</span><span id="strip-combined" class="si-val neutral">₹0.00</span></div>
     <div class="strip-item"><span class="si-lbl">BROKER TIME</span><span id="strip-broker-time" class="si-val dim">—</span></div>
+    <div class="strip-item strip-next"><span class="si-lbl">NEXT EVENT</span><span id="strip-next-event" class="si-val next-pink">—</span></div>
   </div>
 
   <!-- ═══ MASTER CONTROLS ═══ -->
@@ -142,10 +146,10 @@
         <div class="ec-cell"><span>Target</span><b class="engine-target">—</b></div>
         <div class="ec-cell"><span>SL</span><b class="engine-sl">—</b></div>
         <div class="ec-cell"><span>Trailing</span><b class="engine-trailing">OFF</b></div>
-        <div class="ec-cell"><span>Engine P&amp;L</span><b class="engine-pnl neutral" data-engine="normal">₹0</b></div>
-        <div class="ec-cell"><span>Today Pts</span><b class="engine-points">—</b></div>
-        <div class="ec-cell"><span>Confidence</span><b class="engine-confidence">—</b></div>
-        <div class="ec-cell"><span>Opportunity</span><b class="engine-opportunity">—</b></div>
+        <div class="ec-cell metric-highlight"><span>Engine P&amp;L</span><b class="engine-pnl neutral" data-engine="normal">₹0</b></div>
+        <div class="ec-cell metric-highlight"><span>Today Pts</span><b class="engine-points">—</b></div>
+        <div class="ec-cell metric-highlight"><span>Confidence</span><b class="engine-confidence">—</b></div>
+        <div class="ec-cell metric-highlight"><span>Opportunity</span><b class="engine-opportunity">—</b></div>
         <div class="ec-cell"><span>Entry Quality</span><b class="engine-entry-quality">—</b></div>
         <div class="ec-cell"><span>Liquidity</span><b class="engine-liquidity">—</b></div>
         <div class="ec-cell"><span>Momentum</span><b class="engine-momentum">—</b></div>
@@ -189,10 +193,10 @@
         <div class="ec-cell"><span>Target</span><b class="engine-target">—</b></div>
         <div class="ec-cell"><span>SL</span><b class="engine-sl">—</b></div>
         <div class="ec-cell"><span>Trailing</span><b class="engine-trailing">OFF</b></div>
-        <div class="ec-cell"><span>Engine P&amp;L</span><b class="engine-pnl neutral" data-engine="wick">₹0</b></div>
-        <div class="ec-cell"><span>Today Pts</span><b class="engine-points">—</b></div>
-        <div class="ec-cell"><span>Confidence</span><b class="engine-confidence">—</b></div>
-        <div class="ec-cell"><span>Opportunity</span><b class="engine-opportunity">—</b></div>
+        <div class="ec-cell metric-highlight"><span>Engine P&amp;L</span><b class="engine-pnl neutral" data-engine="wick">₹0</b></div>
+        <div class="ec-cell metric-highlight"><span>Today Pts</span><b class="engine-points">—</b></div>
+        <div class="ec-cell metric-highlight"><span>Confidence</span><b class="engine-confidence">—</b></div>
+        <div class="ec-cell metric-highlight"><span>Opportunity</span><b class="engine-opportunity">—</b></div>
         <div class="ec-cell"><span>Entry Quality</span><b class="engine-entry-quality">—</b></div>
         <div class="ec-cell"><span>Liquidity</span><b class="engine-liquidity">—</b></div>
         <div class="ec-cell"><span>Momentum</span><b class="engine-momentum">—</b></div>
@@ -236,10 +240,10 @@
         <div class="ec-cell"><span>Target</span><b class="engine-target">—</b></div>
         <div class="ec-cell"><span>SL</span><b class="engine-sl">—</b></div>
         <div class="ec-cell"><span>Trailing</span><b class="engine-trailing">OFF</b></div>
-        <div class="ec-cell"><span>Engine P&amp;L</span><b class="engine-pnl neutral" data-engine="ultra">₹0</b></div>
-        <div class="ec-cell"><span>Today Pts</span><b class="engine-points">—</b></div>
-        <div class="ec-cell"><span>Confidence</span><b class="engine-confidence">—</b></div>
-        <div class="ec-cell"><span>Opportunity</span><b class="engine-opportunity">—</b></div>
+        <div class="ec-cell metric-highlight"><span>Engine P&amp;L</span><b class="engine-pnl neutral" data-engine="ultra">₹0</b></div>
+        <div class="ec-cell metric-highlight"><span>Today Pts</span><b class="engine-points">—</b></div>
+        <div class="ec-cell metric-highlight"><span>Confidence</span><b class="engine-confidence">—</b></div>
+        <div class="ec-cell metric-highlight"><span>Opportunity</span><b class="engine-opportunity">—</b></div>
         <div class="ec-cell"><span>Entry Quality</span><b class="engine-entry-quality">—</b></div>
         <div class="ec-cell"><span>Liquidity</span><b class="engine-liquidity">—</b></div>
         <div class="ec-cell"><span>Momentum</span><b class="engine-momentum">—</b></div>
@@ -299,18 +303,15 @@
     </div>
     <aside class="market-summary panel">
       <h3 class="section-title">Market Summary</h3>
-      <div class="ms-grid">
-        <div class="ms-row"><span>Advances</span><b id="ms-advances" class="positive">—</b></div>
-        <div class="ms-row"><span>Declines</span><b id="ms-declines" class="negative">—</b></div>
-        <div class="ms-row"><span>Unchanged</span><b id="ms-unchanged">—</b></div>
-        <div class="ms-row"><span>Total Volume</span><b id="ms-volume">—</b></div>
-        <div class="ms-row"><span>Total Value</span><b id="ms-value">—</b></div>
-        <div class="ms-row"><span>VIX</span><b id="ms-vix">—</b></div>
-        <div class="ms-row"><span>PCR</span><b id="ms-pcr">—</b></div>
-        <div class="ms-row"><span>Max Pain</span><b id="ms-maxpain">—</b></div>
-        <div class="ms-row"><span>FII Cash</span><b id="ms-fii" class="positive">—</b></div>
-        <div class="ms-row"><span>DII Cash</span><b id="ms-dii" class="positive">—</b></div>
-      </div>
+      <table class="ms-table">
+        <tbody>
+          <tr><td>Advances</td><td id="ms-advances" class="positive mono">—</td><td>Total Volume</td><td id="ms-volume" class="mono">—</td></tr>
+          <tr><td>Declines</td><td id="ms-declines" class="negative mono">—</td><td>Total Value</td><td id="ms-value" class="mono">—</td></tr>
+          <tr><td>Unchanged</td><td id="ms-unchanged" class="mono">—</td><td>VIX</td><td id="ms-vix" class="mono">—</td></tr>
+          <tr><td>PCR</td><td id="ms-pcr" class="mono">—</td><td>Max Pain</td><td id="ms-maxpain" class="mono">—</td></tr>
+          <tr><td>FII Cash</td><td id="ms-fii" class="positive mono">—</td><td>DII Cash</td><td id="ms-dii" class="positive mono">—</td></tr>
+        </tbody>
+      </table>
     </aside>
   </section>
 
@@ -341,14 +342,14 @@
     <div class="timeline-panel panel">
       <h3 class="section-title">Trading Timeline</h3>
       <div class="timeline" id="timeline">
-        <div class="tl-item" data-phase="OFFLINE"><span class="tl-time">08:30</span><span class="tl-label">Prep</span></div>
-        <div class="tl-item" data-phase="PRE_MARKET"><span class="tl-time">09:00</span><span class="tl-label">Analysis</span></div>
-        <div class="tl-item" data-phase="BIAS_LOCKED"><span class="tl-time">09:07</span><span class="tl-label">Bias Lock</span></div>
-        <div class="tl-item" data-phase="TRADING"><span class="tl-time">09:15</span><span class="tl-label">Trading</span></div>
-        <div class="tl-item" data-phase="NO_NEW_ENTRIES"><span class="tl-time">15:10</span><span class="tl-label">No Entry</span></div>
-        <div class="tl-item" data-phase="FORCE_EXIT"><span class="tl-time">15:14</span><span class="tl-label">Exit All</span></div>
-        <div class="tl-item" data-phase="PREWATCH"><span class="tl-time">15:30</span><span class="tl-label">Pre-Watch</span></div>
-        <div class="tl-item" data-phase="SHUTDOWN"><span class="tl-time">16:00</span><span class="tl-label">Shutdown</span></div>
+        <div class="tl-item" data-phase="OFFLINE"><span class="tl-dot"></span><span class="tl-time">08:30</span><span class="tl-label">Prep</span><span class="tl-check"></span></div>
+        <div class="tl-item" data-phase="PRE_MARKET"><span class="tl-dot"></span><span class="tl-time">09:00</span><span class="tl-label">Analysis</span><span class="tl-check"></span></div>
+        <div class="tl-item" data-phase="BIAS_LOCKED"><span class="tl-dot"></span><span class="tl-time">09:07</span><span class="tl-label">Bias Lock</span><span class="tl-check"></span></div>
+        <div class="tl-item" data-phase="TRADING"><span class="tl-dot"></span><span class="tl-time">09:15</span><span class="tl-label">Trading</span><span class="tl-check"></span></div>
+        <div class="tl-item" data-phase="NO_NEW_ENTRIES"><span class="tl-dot"></span><span class="tl-time">15:10</span><span class="tl-label">No Entry</span><span class="tl-check"></span></div>
+        <div class="tl-item" data-phase="FORCE_EXIT"><span class="tl-dot"></span><span class="tl-time">15:14</span><span class="tl-label">Exit All</span><span class="tl-check"></span></div>
+        <div class="tl-item" data-phase="PREWATCH"><span class="tl-dot"></span><span class="tl-time">15:30</span><span class="tl-label">Pre-Watch</span><span class="tl-check"></span></div>
+        <div class="tl-item" data-phase="SHUTDOWN"><span class="tl-dot"></span><span class="tl-time">16:00</span><span class="tl-label">Shutdown</span><span class="tl-check"></span></div>
       </div>
     </div>
   </section>
