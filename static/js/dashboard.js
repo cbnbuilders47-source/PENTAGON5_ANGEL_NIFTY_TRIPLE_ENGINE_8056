@@ -5,14 +5,48 @@ const POLL = { state: 3000, candles: 2000, health: 10000, logs: 4000, pnl: 3000,
 const ENGINES = ["normal", "wick", "ultra"];
 
 const chartMap = {
-  NIFTY: { canvas: document.getElementById("chart-nifty"), ltp: document.getElementById("ltp-nifty"), chg: document.getElementById("chg-nifty"), scale: document.getElementById("scale-nifty"), time: document.getElementById("time-nifty") },
-  ATM_CE: { canvas: document.getElementById("chart-atm-ce"), ltp: document.getElementById("ltp-atm-ce"), chg: document.getElementById("chg-atm-ce"), scale: document.getElementById("scale-atm-ce"), time: document.getElementById("time-atm-ce") },
-  ATM_PE: { canvas: document.getElementById("chart-atm-pe"), ltp: document.getElementById("ltp-atm-pe"), chg: document.getElementById("chg-atm-pe"), scale: document.getElementById("scale-atm-pe"), time: document.getElementById("time-atm-pe") },
+  NIFTY: {
+    canvas: document.getElementById("chart-nifty"),
+    ltp: document.getElementById("ltp-nifty"),
+    chg: document.getElementById("chg-nifty"),
+    ohlc: document.getElementById("ohlc-nifty"),
+    scale: document.getElementById("scale-nifty"),
+    time: document.getElementById("time-nifty"),
+  },
+  ATM_CE: {
+    canvas: document.getElementById("chart-atm-ce"),
+    ltp: document.getElementById("ltp-atm-ce"),
+    chg: document.getElementById("chg-atm-ce"),
+    ohlc: document.getElementById("ohlc-atm-ce"),
+    scale: document.getElementById("scale-atm-ce"),
+    time: document.getElementById("time-atm-ce"),
+  },
+  ATM_PE: {
+    canvas: document.getElementById("chart-atm-pe"),
+    ltp: document.getElementById("ltp-atm-pe"),
+    chg: document.getElementById("chg-atm-pe"),
+    ohlc: document.getElementById("ohlc-atm-pe"),
+    scale: document.getElementById("scale-atm-pe"),
+    time: document.getElementById("time-atm-pe"),
+  },
 };
 
-const btnConnect = document.getElementById("btn-connect");
-const btnDisconnect = document.getElementById("btn-disconnect");
-const toast = document.getElementById("toast");
+const READINESS_LABELS = {
+  angel_connected: "Angel Login",
+  jwt_valid: "JWT",
+  feed_token_valid: "Feed Token",
+  websocket_connected: "WebSocket",
+  nifty_tick_fresh: "NIFTY Tick",
+  atm_ce_tick_fresh: "ATM CE",
+  atm_pe_tick_fresh: "ATM PE",
+  margin_fetched: "Margin",
+  instrument_master_loaded: "Instrument Master",
+  expiry_selected: "Expiry / ATM",
+  no_rate_limit: "API Rate",
+};
+
+const chartState = {};
+const chartCrosshair = {};
 
 let brokerBusy = false;
 let logsPaused = false;
@@ -20,8 +54,56 @@ let logsCleared = false;
 let activeLogTab = "system";
 let logAutoScroll = true;
 let lastNiftyCandles = [];
+let lastAtmCeCandles = [];
+let lastAtmPeCandles = [];
+let currentSchedulerPhase = "OFFLINE";
 
-// ── Utilities ──────────────────────────────────────────────
+const btnConnect = document.getElementById("btn-connect");
+const btnDisconnect = document.getElementById("btn-disconnect");
+const toast = document.getElementById("toast");
+
+function combinedPnlClass(n) {
+  const val = Number(n) || 0;
+  if (val > 0) return "positive";
+  if (val < 0) return "negative";
+  return "pnl-zero";
+}
+
+function getISTNow() {
+  return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+}
+
+function formatDuration(totalMins) {
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function updateMarketCountdown() {
+  const el = document.getElementById("market-countdown");
+  if (!el) return;
+  const now = getISTNow();
+  const day = now.getDay();
+  const mins = now.getHours() * 60 + now.getMinutes();
+  const openMins = 9 * 60 + 15;
+  const closeMins = 15 * 60 + 30;
+  const isWeekend = day === 0 || day === 6;
+
+  if (isWeekend) {
+    el.textContent = "Market Opens Mon 09:15 IST";
+    return;
+  }
+  if (mins < openMins) {
+    el.textContent = `Market Opens In ${formatDuration(openMins - mins)}`;
+    return;
+  }
+  if (mins >= openMins && mins < closeMins) {
+    el.textContent = `Market Closes In ${formatDuration(closeMins - mins)}`;
+    return;
+  }
+  el.textContent = "Market Opens Tomorrow 09:15 IST";
+}
 
 function formatCurrency(n) {
   const val = Number(n) || 0;
@@ -53,6 +135,7 @@ function updateClock() {
   if (timeEl) timeEl.textContent = now.toLocaleTimeString("en-IN", { hour12: true, hour: "2-digit", minute: "2-digit", second: "2-digit" }) + " IST";
   if (dateEl) dateEl.textContent = now.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
   if (brokerTime) brokerTime.textContent = now.toLocaleTimeString("en-IN", { hour12: false });
+  updateMarketCountdown();
 }
 
 setInterval(updateClock, 1000);
@@ -63,8 +146,8 @@ updateClock();
 function drawSparkline(candles) {
   const canvas = document.getElementById("nifty-sparkline");
   if (!canvas) return;
-  const w = canvas.offsetWidth || 140;
-  const h = 32;
+  const w = canvas.offsetWidth || 200;
+  const h = 36;
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext("2d");
@@ -74,8 +157,25 @@ function drawSparkline(candles) {
   const min = Math.min(...closes);
   const max = Math.max(...closes);
   const range = max - min || 1;
-  ctx.strokeStyle = "#00ff88";
-  ctx.lineWidth = 1.5;
+  const first = closes[0];
+  const last = closes[closes.length - 1];
+  const up = last >= first;
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, up ? "rgba(0,230,118,0.18)" : "rgba(255,61,90,0.18)");
+  grad.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  closes.forEach((c, i) => {
+    const x = (i / (closes.length - 1 || 1)) * (w - 4) + 2;
+    const y = h - 4 - ((c - min) / range) * (h - 8);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.lineTo(w - 2, h);
+  ctx.lineTo(2, h);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = up ? "#00e676" : "#ff3d5a";
+  ctx.lineWidth = 1.75;
   ctx.beginPath();
   closes.forEach((c, i) => {
     const x = (i / (closes.length - 1 || 1)) * (w - 4) + 2;
@@ -83,6 +183,40 @@ function drawSparkline(candles) {
     i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
   });
   ctx.stroke();
+}
+
+function updateNiftyCard(state, candles) {
+  const ltpEl = document.getElementById("nifty-ltp");
+  const chgEl = document.getElementById("nifty-change");
+  const pctEl = document.getElementById("nifty-change-pct");
+  const openEl = document.getElementById("nifty-open");
+  const highEl = document.getElementById("nifty-high");
+  const lowEl = document.getElementById("nifty-low");
+  const prevEl = document.getElementById("nifty-prev-close");
+
+  if (state?.nifty_ltp && ltpEl) {
+    ltpEl.textContent = state.nifty_ltp.toFixed(2);
+    const pts = state.nifty_change_pts || 0;
+    const pct = state.nifty_change_pct || 0;
+    const cls = pnlClass(pts);
+    if (chgEl) {
+      chgEl.textContent = `${pts >= 0 ? "+" : ""}${pts.toFixed(2)}`;
+      chgEl.className = `nifty-change ${cls}`;
+    }
+    if (pctEl) {
+      pctEl.textContent = `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`;
+      pctEl.className = `nifty-change-pct ${cls}`;
+    }
+    if (prevEl) prevEl.textContent = (state.nifty_ltp - pts).toFixed(2);
+  }
+
+  if (candles?.length) {
+    const dayHigh = Math.max(...candles.map((c) => c.high));
+    const dayLow = Math.min(...candles.map((c) => c.low));
+    if (openEl) openEl.textContent = candles[0].open.toFixed(2);
+    if (highEl) highEl.textContent = dayHigh.toFixed(2);
+    if (lowEl) lowEl.textContent = dayLow.toFixed(2);
+  }
 }
 
 // ── Health & Readiness ─────────────────────────────────────
@@ -100,14 +234,50 @@ async function refreshReadiness() {
     const res = await apiFetch("/broker/readiness");
     if (!res.ok) return;
     const data = await res.json();
-    const el = document.getElementById("readiness-status");
-    if (!el) return;
-    const passed = (data.checks || []).filter((c) => c.passed).length;
-    const total = (data.checks || []).length || 11;
-    el.textContent = data.ready ? `READINESS ${passed}/${total}` : `READINESS ${passed}/${total}`;
-    el.className = data.ready ? "status-chip ok" : "status-chip warn";
+    const checks = data.checks || [];
+    const passed = checks.filter((c) => c.passed).length;
+    const total = checks.length || 11;
+    const label = `READINESS ${passed}/${total}`;
+
+    const toggle = document.getElementById("readiness-toggle");
+    const legacy = document.getElementById("readiness-status");
+    const target = toggle || legacy;
+    if (target) {
+      target.textContent = label;
+      target.className = data.ready ? "status-chip readiness-toggle ok" : "status-chip readiness-toggle warn";
+    }
+
+    const list = document.getElementById("readiness-checklist");
+    if (list) {
+      list.innerHTML = checks.map((c) => {
+        const name = READINESS_LABELS[c.name] || c.name;
+        const icon = c.passed ? "✓" : "✗";
+        const iconCls = c.passed ? "rc-pass" : "rc-fail";
+        const msg = c.message ? `<span class="rc-msg">${c.message}</span>` : "";
+        return `<div class="rc-item"><span class="${iconCls}">${icon}</span><div><span class="rc-label">${name}</span>${msg}</div></div>`;
+      }).join("");
+    }
   } catch { /* silent */ }
 }
+
+document.getElementById("readiness-toggle")?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const list = document.getElementById("readiness-checklist");
+  const btn = document.getElementById("readiness-toggle");
+  if (!list || !btn) return;
+  list.classList.toggle("hidden");
+  btn.setAttribute("aria-expanded", list.classList.contains("hidden") ? "false" : "true");
+});
+
+document.addEventListener("click", (e) => {
+  const wrap = document.querySelector(".readiness-wrap");
+  const list = document.getElementById("readiness-checklist");
+  if (!wrap || !list || list.classList.contains("hidden")) return;
+  if (!wrap.contains(e.target)) {
+    list.classList.add("hidden");
+    document.getElementById("readiness-toggle")?.setAttribute("aria-expanded", "false");
+  }
+});
 
 // ── Broker ─────────────────────────────────────────────────
 
@@ -185,13 +355,16 @@ async function refreshPnL() {
     if (!res.ok) return;
     const data = await res.json();
 
-    const setStrip = (id, val, cls) => {
+    const setStrip = (id, val, cls, extra = "") => {
       const el = document.getElementById(id);
-      if (el) { el.textContent = formatCurrency(val); if (cls) el.className = `si-val ${cls}`; }
+      if (el) {
+        el.textContent = formatCurrency(val);
+        if (cls) el.className = `si-val ${extra}${cls}`.trim();
+      }
     };
     setStrip("strip-realized", data.realized, pnlClass(data.realized));
     setStrip("strip-unrealized", data.unrealized, pnlClass(data.unrealized));
-    setStrip("strip-combined", data.total, pnlClass(data.total));
+    setStrip("strip-combined", data.total, combinedPnlClass(data.total), "combined-pnl ");
 
     data.engines.forEach(updateEnginePanel);
   } catch { /* silent */ }
@@ -227,6 +400,17 @@ function updateEnginePanel(engine) {
   panel.classList.toggle("engine-active", engine.status === "ACTIVE");
 }
 
+function engineStatusBadge(decision, mode) {
+  const d = (decision || "WAIT").toUpperCase();
+  const m = (mode || "MONITOR").toUpperCase();
+  if (d === "BLOCKED") return { text: "BLOCKED", cls: "badge-blocked" };
+  if (d.startsWith("WOULD_BUY") || d === "READY") return { text: "READY", cls: "badge-ready" };
+  if (d === "WOULD_EXIT") return { text: "BLOCKED", cls: "badge-blocked" };
+  if (d === "WAIT" && m === "MONITOR") return { text: "MONITOR", cls: "badge-monitor" };
+  if (d === "WAIT") return { text: "WAIT", cls: "badge-wait" };
+  return { text: d.replace(/_/g, " "), cls: "badge-wait" };
+}
+
 function updateEngineIntelligence(name, intel, livePos) {
   const panel = document.getElementById(`panel-${name}`);
   if (!panel || !intel) return;
@@ -253,6 +437,15 @@ function updateEngineIntelligence(name, intel, livePos) {
   set("engine-health", intel.market_health != null ? (intel.market_health > 70 ? "Excellent" : intel.market_health > 50 ? "Good" : "Fair") : "—");
   set("engine-target", intel.expected_target != null ? intel.expected_target.toFixed(2) : "—");
   set("engine-sl", intel.expected_sl != null ? intel.expected_sl.toFixed(2) : "—");
+
+  const modeEl = panel.querySelector(`.engine-mode[data-engine="${name}"]`);
+  const mode = modeEl?.textContent || document.querySelector(`.mode-select[data-engine="${name}"]`)?.value || "MONITOR";
+  const badge = engineStatusBadge(intel.decision, mode);
+  const badgeEl = panel.querySelector(".engine-status-badge");
+  if (badgeEl) {
+    badgeEl.textContent = badge.text;
+    badgeEl.className = `engine-status-badge ${badge.cls}`;
+  }
 
   const decEl = panel.querySelector(".engine-decision");
   if (decEl) {
@@ -284,10 +477,12 @@ function updateBullBear(bias) {
   const bearPct = 100 - bullPct;
   const bullEl = document.getElementById("bull-pct");
   const bearEl = document.getElementById("bear-pct");
+  const confEl = document.getElementById("bias-confidence-hdr");
   const bullBar = document.getElementById("bull-bar");
   const bearBar = document.getElementById("bear-bar");
   if (bullEl) bullEl.textContent = `BULL ${bullPct.toFixed(0)}%`;
   if (bearEl) bearEl.textContent = `BEAR ${bearPct.toFixed(0)}%`;
+  if (confEl) confEl.textContent = `${bias.confidence_pct?.toFixed?.(0) ?? "—"}%`;
   if (bullBar) bullBar.style.width = bullPct + "%";
   if (bearBar) bearBar.style.width = bearPct + "%";
 }
@@ -302,6 +497,7 @@ async function refreshTimeline() {
     if (!res.ok) return;
     const data = await res.json();
     const phase = data.current_phase;
+    currentSchedulerPhase = phase;
     const idx = PHASE_ORDER.indexOf(phase);
 
     const labels = {
@@ -343,7 +539,28 @@ function setupCanvas(canvas) {
   return { ctx, w, h };
 }
 
-function drawCandles(symbol, candles) {
+function updateChartHeader(cfg, candles) {
+  if (!candles.length) {
+    if (cfg.ltp) cfg.ltp.textContent = "—";
+    if (cfg.chg) { cfg.chg.textContent = "—"; cfg.chg.className = "ch-chg neutral"; }
+    if (cfg.ohlc) cfg.ohlc.textContent = "O — H — L — C —";
+    return;
+  }
+  const last = candles[candles.length - 1];
+  const first = candles[0];
+  const chg = last.close - first.close;
+  const chgPct = first.close ? (chg / first.close) * 100 : 0;
+  if (cfg.ltp) cfg.ltp.textContent = last.close.toFixed(2);
+  if (cfg.chg) {
+    cfg.chg.textContent = `${chg >= 0 ? "+" : ""}${chg.toFixed(2)} (${chgPct >= 0 ? "+" : ""}${chgPct.toFixed(2)}%)`;
+    cfg.chg.className = `ch-chg ${pnlClass(chg)}`;
+  }
+  if (cfg.ohlc) {
+    cfg.ohlc.textContent = `O ${last.open.toFixed(2)}  H ${last.high.toFixed(2)}  L ${last.low.toFixed(2)}  C ${last.close.toFixed(2)}`;
+  }
+}
+
+function drawCandles(symbol, candles, hoverIdx = null) {
   const cfg = chartMap[symbol];
   if (!cfg?.canvas) return;
   const { ctx, w, h } = setupCanvas(cfg.canvas);
@@ -354,24 +571,16 @@ function drawCandles(symbol, candles) {
     ctx.font = "12px JetBrains Mono, monospace";
     ctx.textAlign = "center";
     ctx.fillText("Awaiting live ticks", w / 2, h / 2);
-    if (cfg.ltp) cfg.ltp.textContent = "—";
-    if (cfg.chg) cfg.chg.textContent = "—";
+    updateChartHeader(cfg, []);
     if (cfg.scale) cfg.scale.innerHTML = "";
     if (cfg.time) cfg.time.innerHTML = "";
+    chartState[symbol] = null;
     return;
   }
 
+  updateChartHeader(cfg, candles);
+
   const last = candles[candles.length - 1];
-  const first = candles[0];
-  const chg = last.close - first.close;
-  const chgPct = first.close ? (chg / first.close) * 100 : 0;
-
-  if (cfg.ltp) cfg.ltp.textContent = last.close.toFixed(2);
-  if (cfg.chg) {
-    cfg.chg.textContent = `${chg >= 0 ? "+" : ""}${chg.toFixed(2)} (${chgPct >= 0 ? "+" : ""}${chgPct.toFixed(2)}%)`;
-    cfg.chg.className = `ch-chg ${pnlClass(chg)}`;
-  }
-
   const prices = candles.flatMap((c) => [c.high, c.low]);
   const min = Math.min(...prices);
   const max = Math.max(...prices);
@@ -379,26 +588,88 @@ function drawCandles(symbol, candles) {
   const lo = min - pad;
   const hi = max + pad;
   const range = hi - lo;
-  const rightPad = 4;
-  const barW = Math.max(2, (w - 20) / candles.length - 1);
+  const volH = Math.floor(h * 0.2);
+  const topPad = 10;
+  const priceH = h - volH - topPad - 8;
+  const leftPad = 8;
+  const barW = Math.max(2, (w - leftPad * 2) / candles.length - 1);
+  const vols = candles.map((c) => c.volume || 0);
+  const maxVol = Math.max(...vols, 1);
+
+  const yPrice = (price) => topPad + ((hi - price) / range) * priceH;
+
+  for (let g = 0; g <= 4; g++) {
+    const y = topPad + (g / 4) * priceH;
+    ctx.strokeStyle = "rgba(255,255,255,0.06)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(leftPad, y);
+    ctx.lineTo(w - leftPad, y);
+    ctx.stroke();
+  }
 
   candles.forEach((c, i) => {
-    const x = 8 + i * (barW + 1);
-    const yH = 8 + ((hi - c.high) / range) * (h - 20);
-    const yL = 8 + ((hi - c.low) / range) * (h - 20);
-    const yO = 8 + ((hi - c.open) / range) * (h - 20);
-    const yC = 8 + ((hi - c.close) / range) * (h - 20);
+    const x = leftPad + i * (barW + 1);
+    const yH = yPrice(c.high);
+    const yL = yPrice(c.low);
+    const yO = yPrice(c.open);
+    const yC = yPrice(c.close);
     const bull = c.close >= c.open;
-    const color = bull ? "#00ff88" : "#ff3355";
+    const color = bull ? "#00e676" : "#ff3d5a";
+    const isLast = i === candles.length - 1;
+    const isHover = hoverIdx === i;
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.moveTo(x + barW / 2, yH);
     ctx.lineTo(x + barW / 2, yL);
-    ctx.lineWidth = 1;
+    ctx.lineWidth = isLast || isHover ? 2 : 1;
     ctx.stroke();
-    ctx.fillRect(x, Math.min(yO, yC), barW, Math.max(1, Math.abs(yC - yO)));
+    const bodyTop = Math.min(yO, yC);
+    const bodyH = Math.max(1, Math.abs(yC - yO));
+    if (isLast) {
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x - 0.5, bodyTop - 0.5, barW + 1, bodyH + 1);
+    }
+    ctx.fillStyle = color;
+    ctx.fillRect(x, bodyTop, barW, bodyH);
+
+    const volBarH = (vols[i] / maxVol) * (volH - 4);
+    const volY = h - volBarH - 2;
+    ctx.fillStyle = bull ? "rgba(0,230,118,0.35)" : "rgba(255,61,90,0.35)";
+    ctx.fillRect(x, volY, barW, volBarH);
   });
+
+  const yLast = yPrice(last.close);
+  ctx.strokeStyle = "rgba(0,230,118,0.55)";
+  ctx.setLineDash([5, 4]);
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(leftPad, yLast);
+  ctx.lineTo(w - leftPad, yLast);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  if (hoverIdx != null && candles[hoverIdx]) {
+    const c = candles[hoverIdx];
+    const x = leftPad + hoverIdx * (barW + 1) + barW / 2;
+    ctx.strokeStyle = "rgba(255,255,255,0.35)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(x, topPad);
+    ctx.lineTo(x, h - volH);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(leftPad, yPrice(c.close));
+    ctx.lineTo(w - leftPad, yPrice(c.close));
+    ctx.stroke();
+    ctx.setLineDash([]);
+    if (cfg.ohlc) {
+      cfg.ohlc.textContent = `O ${c.open.toFixed(2)}  H ${c.high.toFixed(2)}  L ${c.low.toFixed(2)}  C ${c.close.toFixed(2)}`;
+    }
+  }
 
   if (cfg.scale) {
     cfg.scale.innerHTML = `<span>${hi.toFixed(2)}</span><span style="color:var(--bull)">${last.close.toFixed(2)}</span><span>${lo.toFixed(2)}</span>`;
@@ -409,10 +680,42 @@ function drawCandles(symbol, candles) {
     cfg.time.innerHTML = `<span>${t0}</span><span>${t1}</span>`;
   }
 
+  chartState[symbol] = { candles, w, h, lo, hi, range, barW, leftPad, topPad, priceH, volH };
+
   if (symbol === "NIFTY") {
     lastNiftyCandles = candles;
     drawSparkline(candles);
+    updateNiftyCard(window.__lastDashboardState || {}, candles);
+    updateMarketSummary(window.__lastDashboardState || {});
+  } else if (symbol === "ATM_CE") {
+    lastAtmCeCandles = candles;
+    updateMarketSummary(window.__lastDashboardState || {});
+  } else if (symbol === "ATM_PE") {
+    lastAtmPeCandles = candles;
+    updateMarketSummary(window.__lastDashboardState || {});
   }
+}
+
+function initChartCrosshair() {
+  Object.entries(chartMap).forEach(([symbol, cfg]) => {
+    if (!cfg.canvas) return;
+    cfg.canvas.addEventListener("mousemove", (e) => {
+      const st = chartState[symbol];
+      if (!st?.candles?.length) return;
+      const rect = cfg.canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const idx = Math.max(0, Math.min(st.candles.length - 1, Math.floor((x - st.leftPad) / (st.barW + 1))));
+      if (chartCrosshair[symbol] !== idx) {
+        chartCrosshair[symbol] = idx;
+        drawCandles(symbol, st.candles, idx);
+      }
+    });
+    cfg.canvas.addEventListener("mouseleave", () => {
+      chartCrosshair[symbol] = null;
+      const st = chartState[symbol];
+      if (st?.candles) drawCandles(symbol, st.candles);
+    });
+  });
 }
 
 async function fetchCandles(symbol) {
@@ -431,21 +734,75 @@ async function refreshCandles() {
 
 // ── Market summary (placeholders) ──────────────────────────
 
+function msSet(id, val) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = val;
+}
+
+function syncMarketSummaryRows() {
+  let visible = 0;
+  document.querySelectorAll(".ms-table tr[data-ms]").forEach((row) => {
+    const cells = row.querySelectorAll("[id^='ms-']");
+    const hasVal = [...cells].some((c) => c.textContent && c.textContent !== "—");
+    row.classList.toggle("ms-empty", !hasVal);
+    if (hasVal) visible += 1;
+  });
+  const note = document.getElementById("ms-empty-note");
+  if (note) note.classList.toggle("hidden", visible > 0);
+}
+
 function updateMarketSummary(state) {
-  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-  set("ms-advances", "—");
-  set("ms-declines", "—");
-  set("ms-unchanged", "—");
-  set("ms-volume", "—");
-  set("ms-value", "—");
-  set("ms-vix", "—");
-  set("ms-pcr", "—");
-  set("ms-maxpain", state.nifty_ltp ? Math.round(state.nifty_ltp / 50) * 50 : "—");
-  set("ms-fii", "—");
-  set("ms-dii", "—");
+  const empty = "—";
+  msSet("ms-advances", empty);
+  msSet("ms-declines", empty);
+  msSet("ms-unchanged", empty);
+  msSet("ms-fii", empty);
+  msSet("ms-dii", empty);
+  msSet("ms-vix", empty);
+
+  if (lastNiftyCandles.length) {
+    const vol = lastNiftyCandles.reduce((s, c) => s + (c.volume || 0), 0);
+    if (vol > 0) msSet("ms-volume", vol.toLocaleString("en-IN"));
+    const dayHigh = Math.max(...lastNiftyCandles.map((c) => c.high));
+    const dayLow = Math.min(...lastNiftyCandles.map((c) => c.low));
+    msSet("ms-day-range", `${dayLow.toFixed(0)} – ${dayHigh.toFixed(0)}`);
+    const turnover = lastNiftyCandles.reduce((s, c) => s + ((c.volume || 0) * c.close), 0);
+    if (turnover > 0) msSet("ms-value", `₹${(turnover / 1e7).toFixed(1)} Cr`);
+  }
+
+  if (state?.nifty_ltp) {
+    msSet("ms-nifty-ltp", state.nifty_ltp.toFixed(2));
+    msSet("ms-maxpain", String(Math.round(state.nifty_ltp / 50) * 50));
+  }
+
+  if (lastAtmCeCandles.length && lastAtmPeCandles.length) {
+    const ce = lastAtmCeCandles[lastAtmCeCandles.length - 1].close;
+    const pe = lastAtmPeCandles[lastAtmPeCandles.length - 1].close;
+    if (ce > 0 && pe > 0) msSet("ms-pcr", (pe / ce).toFixed(2));
+  }
+
+  syncMarketSummaryRows();
 }
 
 // ── Logs ───────────────────────────────────────────────────
+
+function logLineClass(line) {
+  const u = line.toUpperCase();
+  if (u.includes("ERROR") || u.includes("CRITICAL") || u.includes("FAILED") || u.includes("EXCEPTION")) return "log-error";
+  if (u.includes("WARNING") || u.includes("WARN")) return "log-warning";
+  if (u.includes("SUCCESS") || u.includes("CONNECTED") || u.includes("APPROVED") || u.includes("FILLED")) return "log-success";
+  if (u.includes("INFO")) return "log-info";
+  return "log-dim";
+}
+
+function renderLogLines(lines) {
+  if (!lines.length) return "No log entries yet.";
+  return lines.map((line) => {
+    const safe = line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return `<span class="log-line ${logLineClass(line)}">${safe}</span>`;
+  }).join("");
+}
 
 async function refreshLogs() {
   if (logsPaused || logsCleared) return;
@@ -455,7 +812,7 @@ async function refreshLogs() {
     const data = await res.json();
     const output = document.getElementById("logs-output");
     if (!output) return;
-    output.textContent = data.lines.length ? data.lines.join("\n") : "No log entries yet.";
+    output.innerHTML = renderLogLines(data.lines || []);
     if (logAutoScroll) output.scrollTop = output.scrollHeight;
   } catch { /* silent */ }
 }
@@ -482,12 +839,13 @@ document.getElementById("btn-pause-logs")?.addEventListener("click", () => {
 document.getElementById("btn-clear-logs-view")?.addEventListener("click", () => {
   logsCleared = true;
   const output = document.getElementById("logs-output");
-  if (output) output.textContent = "Log view cleared.";
+  if (output) output.innerHTML = '<span class="log-line log-dim">Log view cleared.</span>';
   setTimeout(() => { logsCleared = false; }, POLL.logs);
 });
 
 document.getElementById("btn-export-logs")?.addEventListener("click", () => {
-  const text = document.getElementById("logs-output")?.textContent || "";
+  const output = document.getElementById("logs-output");
+  const text = output?.innerText || output?.textContent || "";
   const blob = new Blob([text], { type: "text/plain" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -502,22 +860,17 @@ async function refreshState() {
     const res = await apiFetch("/dashboard/state");
     if (!res.ok) return;
     const state = await res.json();
+    window.__lastDashboardState = state;
 
     setBrokerUI(state.broker_connected, state.websocket_connected);
     updateMarginStrip(state);
     updateBullBear(state.bias);
     updateMarketSummary(state);
+    updateNiftyCard(state, lastNiftyCandles);
 
     if (state.nifty_ltp) {
       const ltpEl = document.getElementById("nifty-ltp");
-      const chgEl = document.getElementById("nifty-change");
       if (ltpEl) ltpEl.textContent = state.nifty_ltp.toFixed(2);
-      if (chgEl) {
-        const pts = state.nifty_change_pts || 0;
-        const pct = state.nifty_change_pct || 0;
-        chgEl.textContent = `${pts >= 0 ? "+" : ""}${pts.toFixed(2)} (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%)`;
-        chgEl.className = `nifty-change ${pnlClass(pts)}`;
-      }
     }
 
     if (state.engine_modes) {
@@ -703,6 +1056,7 @@ document.getElementById("btn-clear-logs")?.addEventListener("click", () => {
 // ── Init ───────────────────────────────────────────────────
 
 function init() {
+  initChartCrosshair();
   refreshHealth();
   refreshReadiness();
   refreshBroker();
@@ -711,6 +1065,7 @@ function init() {
   refreshCandles();
   refreshLogs();
   refreshTimeline();
+  syncMarketSummaryRows();
 
   setInterval(refreshHealth, POLL.health);
   setInterval(refreshReadiness, POLL.health);
