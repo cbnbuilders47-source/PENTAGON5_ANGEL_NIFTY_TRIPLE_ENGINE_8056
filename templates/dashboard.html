@@ -6,260 +6,319 @@
   <title>{{ app_name }}</title>
   <link rel="stylesheet" href="/static/css/dashboard.css" />
 </head>
-<body>
+<body class="terminal">
   <div class="glow-bg"></div>
+  <div id="toast" class="toast hidden"></div>
+  <div id="manual-approvals" class="manual-approvals hidden"></div>
 
-  <header class="header">
-    <div class="brand">
+  <!-- ═══ HEADER ═══ -->
+  <header class="top-header panel">
+    <div class="hdr-brand">
       <span class="brand-mark">P5</span>
       <div>
-        <h1>{{ app_name }}</h1>
+        <h1>PENTAGON5 ANGEL NIFTY TRIPLE ENGINE</h1>
         <p class="subtitle">LIVE TRADING DASHBOARD · NIFTY ONLY · Port 8056</p>
       </div>
     </div>
-    <div class="header-center">
-      <div class="nifty-quote">
-        <span class="nifty-label">NIFTY 50</span>
+
+    <div class="hdr-nifty panel-inner">
+      <div class="nifty-top">
+        <span class="lbl">NIFTY 50</span>
         <span id="nifty-ltp" class="nifty-ltp">—</span>
         <span id="nifty-change" class="nifty-change neutral">—</span>
       </div>
-      <div class="bull-bear-gauge">
-        <span id="bull-pct" class="bull-pct">Bull 50%</span>
-        <span id="bear-pct" class="bear-pct">Bear 50%</span>
+      <canvas id="nifty-sparkline" class="sparkline" height="28"></canvas>
+    </div>
+
+    <div class="hdr-bullbear">
+      <div class="bb-labels">
+        <span id="bull-pct" class="bull-txt">BULL 50%</span>
+        <span id="bear-pct" class="bear-txt">BEAR 50%</span>
+      </div>
+      <div class="bb-bar">
+        <div id="bull-bar" class="bb-bull" style="width:50%"></div>
+        <div id="bear-bar" class="bb-bear" style="width:50%"></div>
       </div>
     </div>
-    <div class="header-right">
-      <div class="header-meta">
-        <span id="clock-display" class="meta-time">—</span>
-        <span id="date-display" class="meta-date">—</span>
-        <span id="market-status" class="pill pill-live">LIVE</span>
-      </div>
-      <div class="status-pills">
-        <span id="health-status" class="pill">HEALTH —</span>
-        <span id="ready-status" class="pill">READY —</span>
-        <span id="session-phase" class="pill">OFFLINE</span>
-        <span id="broker-status" class="pill pill-warn">ANGEL OFFLINE</span>
-        <span id="ws-status" class="pill pill-warn">WS OFFLINE</span>
-      </div>
-      <div class="margin-header">
-        <div><span class="mh-label">Available</span><span id="hdr-available-margin">₹0</span></div>
-        <div><span class="mh-label">Used</span><span id="hdr-used-margin">₹0</span></div>
-        <div><span class="mh-label">P&amp;L</span><span id="hdr-total-pnl" class="neutral">₹0</span></div>
+
+    <div class="hdr-clock">
+      <span id="date-display" class="hdr-date">—</span>
+      <span id="clock-display" class="hdr-time">—</span>
+      <span id="market-status" class="mkt-status">MARKET STATUS: —</span>
+    </div>
+
+    <div class="hdr-status">
+      <span id="broker-status" class="status-chip warn">ANGEL OFFLINE</span>
+      <span id="ws-status" class="status-chip warn">WS OFFLINE</span>
+      <span id="readiness-status" class="status-chip">READINESS —</span>
+      <div class="next-event-box">
+        <span class="lbl">NEXT EVENT</span>
+        <span id="next-event" class="next-event-val">—</span>
       </div>
     </div>
   </header>
 
-  <nav class="master-bar">
-    <button id="btn-connect" class="btn-primary btn-sm">Connect Angel</button>
-    <button id="btn-disconnect" class="btn-secondary btn-sm" disabled>Disconnect</button>
-    <button id="btn-health" class="btn-ghost btn-sm">Health Check</button>
-    <button id="btn-token" class="btn-ghost btn-sm">Token Check</button>
-    <button id="btn-restart" class="btn-ghost btn-sm">Restart Engine</button>
-    <button id="btn-clear-storage" class="btn-ghost btn-sm">Safe Clear Storage</button>
-    <button id="btn-clear-logs" class="btn-ghost btn-sm">Clear Logs</button>
-    <button id="btn-download-report" class="btn-ghost btn-sm">Download Report</button>
-    <button id="btn-exit-all" class="btn-warn btn-sm">Emergency Exit All</button>
-    <button id="btn-exit-server" class="btn-danger btn-sm">Exit Server</button>
+  <!-- ═══ MARGIN / P&L STRIP ═══ -->
+  <div class="margin-strip panel">
+    <div class="strip-item"><span class="si-lbl">AVAILABLE MARGIN</span><span id="strip-available" class="si-val">₹0.00</span></div>
+    <div class="strip-item"><span class="si-lbl">USED MARGIN</span><span id="strip-used" class="si-val">₹0.00</span></div>
+    <div class="strip-item"><span class="si-lbl">REMAINING MARGIN</span><span id="strip-remaining" class="si-val">₹0.00</span></div>
+    <div class="strip-item"><span class="si-lbl">BUYING POWER</span><span id="strip-buying" class="si-val">₹0.00</span></div>
+    <div class="strip-item"><span class="si-lbl">TODAY REALIZED P&amp;L</span><span id="strip-realized" class="si-val neutral">₹0.00</span></div>
+    <div class="strip-item"><span class="si-lbl">TODAY UNREALIZED P&amp;L</span><span id="strip-unrealized" class="si-val neutral">₹0.00</span></div>
+    <div class="strip-item highlight"><span class="si-lbl">COMBINED P&amp;L</span><span id="strip-combined" class="si-val neutral">₹0.00</span></div>
+    <div class="strip-item"><span class="si-lbl">BROKER TIME</span><span id="strip-broker-time" class="si-val dim">—</span></div>
+  </div>
+
+  <!-- ═══ MASTER CONTROLS ═══ -->
+  <nav class="master-bar panel">
+    <button id="btn-connect" class="mc-btn mc-primary" title="Connect Angel">⚡ Connect Angel</button>
+    <button id="btn-disconnect" class="mc-btn" disabled title="Disconnect Angel">⏻ Disconnect</button>
+    <button id="btn-health" class="mc-btn" title="Health Check">♥ Health</button>
+    <button id="btn-token" class="mc-btn" title="Token Check">🔑 Token</button>
+    <button id="btn-restart" class="mc-btn" title="Restart Engine">↻ Restart</button>
+    <button id="btn-clear-storage" class="mc-btn" title="Safe Clear Storage">🗑 Safe Clear</button>
+    <button id="btn-clear-logs" class="mc-btn" title="Clear Logs">📋 Clear Logs</button>
+    <button id="btn-download-report" class="mc-btn" title="Download Report">⬇ Report</button>
+    <button id="btn-refresh-master" class="mc-btn" title="Refresh Instrument Master">📦 Refresh Master</button>
+    <button id="btn-reload-expiry" class="mc-btn" title="Reload Expiry">📅 Reload Expiry</button>
+    <button id="btn-sync-broker" class="mc-btn" title="Broker Sync">🔄 Sync Broker</button>
+    <button id="btn-ws-reconnect" class="mc-btn" title="WS Reconnect">📡 WS Reconnect</button>
+    <button id="btn-margin-recalc" class="mc-btn" title="Margin Recalculate">💰 Margin Recalc</button>
+    <button id="btn-atm-refresh" class="mc-btn" title="ATM Refresh">🎯 ATM Refresh</button>
+    <button id="btn-reset-stats" class="mc-btn" title="Reset Daily Statistics">📊 Reset Stats</button>
+    <button id="btn-exit-all" class="mc-btn mc-danger" title="Emergency Exit All">⚠ Emergency Exit All</button>
+    <button id="btn-exit-server" class="mc-btn mc-exit" title="Exit Server">✕ Exit Server</button>
   </nav>
 
-  <div id="manual-approvals" class="manual-approvals hidden"></div>
+  <!-- Hidden allocation (API wiring preserved) -->
+  <div class="hidden">
+    <input type="range" id="normal-slider" min="0" max="100" value="30" />
+    <input type="range" id="wick-slider" min="0" max="100" value="30" />
+    <input type="range" id="ultra-slider" min="0" max="100" value="40" />
+    <span id="normal-val"></span><span id="wick-val"></span><span id="ultra-val"></span>
+    <span id="alloc-total"></span><span id="alloc-error" class="hidden"></span>
+    <button id="save-alloc"></button>
+    <span id="available-margin"></span><span id="pnl-total"></span>
+    <span id="pnl-realized"></span><span id="pnl-unrealized"></span>
+    <div id="pnl-engines"></div>
+    <span id="health-status"></span><span id="ready-status"></span>
+    <span id="session-phase"></span><span id="hdr-available-margin"></span>
+    <span id="hdr-used-margin"></span><span id="hdr-total-pnl"></span>
+    <span id="broker-tokens"></span><span id="atm-strike"></span>
+    <div id="bias-display" class="bias-display neutral">
+      <span id="bias-direction"></span><span id="bias-confidence"></span>
+    </div>
+    <p id="bias-locked" class="hidden"></p>
+    <span id="market-mode"></span><span id="ai-recommendation"></span><span id="preferred-engine"></span>
+  </div>
 
-  <div id="toast" class="toast hidden"></div>
+  <!-- ═══ ENGINE CARDS ═══ -->
+  <section class="engines-row">
+    <article class="engine-card panel" id="panel-normal" data-engine="normal">
+      <div class="ec-head">
+        <h2><span class="ec-icon">⚡</span> Normal Engine</h2>
+        <select class="mode-select" data-engine="normal">
+          <option value="OFF">OFF</option>
+          <option value="MONITOR" selected>MONITOR</option>
+          <option value="MANUAL">MANUAL</option>
+          <option value="AUTO">AUTO</option>
+        </select>
+      </div>
+      <div class="ec-btns">
+        <button class="ec-btn start eng-btn-start" data-engine="normal">▶ Start</button>
+        <button class="ec-btn stop eng-btn-stop" data-engine="normal">■ Stop</button>
+        <button class="ec-btn auto eng-btn-auto" data-engine="normal">⚡ Auto</button>
+        <button class="ec-btn manual eng-btn-manual" data-engine="normal">✋ Manual</button>
+        <button class="ec-btn exit eng-btn-exit" data-engine="normal">✕ Exit</button>
+      </div>
+      <div class="ec-grid engine-intel" data-engine="normal">
+        <div class="ec-cell"><span>Side</span><b class="engine-side">—</b></div>
+        <div class="ec-cell"><span>Strike</span><b class="engine-strike">—</b></div>
+        <div class="ec-cell"><span>Lots</span><b class="engine-lots">—</b></div>
+        <div class="ec-cell"><span>Qty</span><b class="engine-qty">—</b></div>
+        <div class="ec-cell"><span>Entry</span><b class="engine-entry">—</b></div>
+        <div class="ec-cell"><span>LTP</span><b class="engine-ltp">—</b></div>
+        <div class="ec-cell"><span>Target</span><b class="engine-target">—</b></div>
+        <div class="ec-cell"><span>SL</span><b class="engine-sl">—</b></div>
+        <div class="ec-cell"><span>Trailing</span><b class="engine-trailing">OFF</b></div>
+        <div class="ec-cell"><span>Engine P&amp;L</span><b class="engine-pnl neutral" data-engine="normal">₹0</b></div>
+        <div class="ec-cell"><span>Today Pts</span><b class="engine-points">—</b></div>
+        <div class="ec-cell"><span>Confidence</span><b class="engine-confidence">—</b></div>
+        <div class="ec-cell"><span>Opportunity</span><b class="engine-opportunity">—</b></div>
+        <div class="ec-cell"><span>Entry Quality</span><b class="engine-entry-quality">—</b></div>
+        <div class="ec-cell"><span>Liquidity</span><b class="engine-liquidity">—</b></div>
+        <div class="ec-cell"><span>Momentum</span><b class="engine-momentum">—</b></div>
+        <div class="ec-cell"><span>Mkt Health</span><b class="engine-health">—</b></div>
+        <div class="ec-cell wide"><span>Decision</span><b class="engine-decision dec-wait">WAIT</b></div>
+        <div class="ec-reasons"><span class="lbl">REASONS</span><span class="engine-reasons-text">—</span></div>
+      </div>
+      <span class="engine-status hidden" data-engine="normal">IDLE</span>
+      <span class="engine-alloc hidden" data-engine="normal">30%</span>
+      <span class="engine-margin hidden" data-engine="normal">₹0</span>
+      <span class="engine-positions hidden" data-engine="normal">0</span>
+      <span class="engine-mode hidden" data-engine="normal">MONITOR</span>
+      <span class="engine-phase hidden">—</span>
+      <ul class="engine-reasons hidden"></ul>
+    </article>
 
-  <main class="grid">
-    <!-- Market Bias -->
-    <section class="card bias-card">
-      <h2>Market Bias</h2>
-      <div id="bias-display" class="bias-display neutral">
-        <span id="bias-direction" class="bias-label">NEUTRAL</span>
-        <span id="bias-confidence" class="bias-pct">0%</span>
+    <article class="engine-card panel" id="panel-wick" data-engine="wick">
+      <div class="ec-head">
+        <h2><span class="ec-icon">🔥</span> Wick Engine</h2>
+        <select class="mode-select" data-engine="wick">
+          <option value="OFF">OFF</option>
+          <option value="MONITOR" selected>MONITOR</option>
+          <option value="MANUAL">MANUAL</option>
+          <option value="AUTO">AUTO</option>
+        </select>
       </div>
-      <p id="bias-locked" class="bias-locked hidden">Bias Locked</p>
-      <div class="intel-meta">
-        <span id="market-mode" class="meta-tag">Mode: —</span>
-        <span id="ai-recommendation" class="meta-tag">AI: —</span>
-        <span id="preferred-engine" class="meta-tag tag-ok">Preferred: —</span>
+      <div class="ec-btns">
+        <button class="ec-btn start eng-btn-start" data-engine="wick">▶ Start</button>
+        <button class="ec-btn stop eng-btn-stop" data-engine="wick">■ Stop</button>
+        <button class="ec-btn auto eng-btn-auto" data-engine="wick">⚡ Auto</button>
+        <button class="ec-btn manual eng-btn-manual" data-engine="wick">✋ Manual</button>
+        <button class="ec-btn exit eng-btn-exit" data-engine="wick">✕ Exit</button>
       </div>
-    </section>
+      <div class="ec-grid engine-intel" data-engine="wick">
+        <div class="ec-cell"><span>Side</span><b class="engine-side">—</b></div>
+        <div class="ec-cell"><span>Strike</span><b class="engine-strike">—</b></div>
+        <div class="ec-cell"><span>Lots</span><b class="engine-lots">—</b></div>
+        <div class="ec-cell"><span>Qty</span><b class="engine-qty">—</b></div>
+        <div class="ec-cell"><span>Entry</span><b class="engine-entry">—</b></div>
+        <div class="ec-cell"><span>LTP</span><b class="engine-ltp">—</b></div>
+        <div class="ec-cell"><span>Target</span><b class="engine-target">—</b></div>
+        <div class="ec-cell"><span>SL</span><b class="engine-sl">—</b></div>
+        <div class="ec-cell"><span>Trailing</span><b class="engine-trailing">OFF</b></div>
+        <div class="ec-cell"><span>Engine P&amp;L</span><b class="engine-pnl neutral" data-engine="wick">₹0</b></div>
+        <div class="ec-cell"><span>Today Pts</span><b class="engine-points">—</b></div>
+        <div class="ec-cell"><span>Confidence</span><b class="engine-confidence">—</b></div>
+        <div class="ec-cell"><span>Opportunity</span><b class="engine-opportunity">—</b></div>
+        <div class="ec-cell"><span>Entry Quality</span><b class="engine-entry-quality">—</b></div>
+        <div class="ec-cell"><span>Liquidity</span><b class="engine-liquidity">—</b></div>
+        <div class="ec-cell"><span>Momentum</span><b class="engine-momentum">—</b></div>
+        <div class="ec-cell"><span>Mkt Health</span><b class="engine-health">—</b></div>
+        <div class="ec-cell wide"><span>Decision</span><b class="engine-decision dec-wait">WAIT</b></div>
+        <div class="ec-reasons"><span class="lbl">REASONS</span><span class="engine-reasons-text">—</span></div>
+      </div>
+      <span class="engine-status hidden" data-engine="wick">IDLE</span>
+      <span class="engine-alloc hidden" data-engine="wick">30%</span>
+      <span class="engine-margin hidden" data-engine="wick">₹0</span>
+      <span class="engine-positions hidden" data-engine="wick">0</span>
+      <span class="engine-mode hidden" data-engine="wick">MONITOR</span>
+      <span class="engine-phase hidden">—</span>
+      <ul class="engine-reasons hidden"></ul>
+    </article>
 
-    <!-- Margin -->
-    <section class="card margin-card">
-      <h2>Available Margin</h2>
-      <p id="available-margin" class="big-number">₹0.00</p>
-      <p class="hint">Auto-fetched from Angel after login</p>
-      <div class="broker-meta">
-        <span id="broker-tokens" class="meta-tag">Tokens: —</span>
-        <span id="atm-strike" class="meta-tag">ATM: —</span>
+    <article class="engine-card panel" id="panel-ultra" data-engine="ultra">
+      <div class="ec-head">
+        <h2><span class="ec-icon">🚀</span> Ultra Engine</h2>
+        <select class="mode-select" data-engine="ultra">
+          <option value="OFF">OFF</option>
+          <option value="MONITOR" selected>MONITOR</option>
+          <option value="MANUAL">MANUAL</option>
+          <option value="AUTO">AUTO</option>
+        </select>
       </div>
-    </section>
+      <div class="ec-btns">
+        <button class="ec-btn start eng-btn-start" data-engine="ultra">▶ Start</button>
+        <button class="ec-btn stop eng-btn-stop" data-engine="ultra">■ Stop</button>
+        <button class="ec-btn auto eng-btn-auto" data-engine="ultra">⚡ Auto</button>
+        <button class="ec-btn manual eng-btn-manual" data-engine="ultra">✋ Manual</button>
+        <button class="ec-btn exit eng-btn-exit" data-engine="ultra">✕ Exit</button>
+      </div>
+      <div class="ec-grid engine-intel" data-engine="ultra">
+        <div class="ec-cell"><span>Side</span><b class="engine-side">—</b></div>
+        <div class="ec-cell"><span>Strike</span><b class="engine-strike">—</b></div>
+        <div class="ec-cell"><span>Lots</span><b class="engine-lots">—</b></div>
+        <div class="ec-cell"><span>Qty</span><b class="engine-qty">—</b></div>
+        <div class="ec-cell"><span>Entry</span><b class="engine-entry">—</b></div>
+        <div class="ec-cell"><span>LTP</span><b class="engine-ltp">—</b></div>
+        <div class="ec-cell"><span>Target</span><b class="engine-target">—</b></div>
+        <div class="ec-cell"><span>SL</span><b class="engine-sl">—</b></div>
+        <div class="ec-cell"><span>Trailing</span><b class="engine-trailing">OFF</b></div>
+        <div class="ec-cell"><span>Engine P&amp;L</span><b class="engine-pnl neutral" data-engine="ultra">₹0</b></div>
+        <div class="ec-cell"><span>Today Pts</span><b class="engine-points">—</b></div>
+        <div class="ec-cell"><span>Confidence</span><b class="engine-confidence">—</b></div>
+        <div class="ec-cell"><span>Opportunity</span><b class="engine-opportunity">—</b></div>
+        <div class="ec-cell"><span>Entry Quality</span><b class="engine-entry-quality">—</b></div>
+        <div class="ec-cell"><span>Liquidity</span><b class="engine-liquidity">—</b></div>
+        <div class="ec-cell"><span>Momentum</span><b class="engine-momentum">—</b></div>
+        <div class="ec-cell"><span>Mkt Health</span><b class="engine-health">—</b></div>
+        <div class="ec-cell wide"><span>Decision</span><b class="engine-decision dec-wait">WAIT</b></div>
+        <div class="ec-reasons"><span class="lbl">REASONS</span><span class="engine-reasons-text">—</span></div>
+      </div>
+      <span class="engine-status hidden" data-engine="ultra">IDLE</span>
+      <span class="engine-alloc hidden" data-engine="ultra">40%</span>
+      <span class="engine-margin hidden" data-engine="ultra">₹0</span>
+      <span class="engine-positions hidden" data-engine="ultra">0</span>
+      <span class="engine-mode hidden" data-engine="ultra">MONITOR</span>
+      <span class="engine-phase hidden">—</span>
+      <ul class="engine-reasons hidden"></ul>
+    </article>
+  </section>
 
-    <!-- Today P&L -->
-    <section class="card pnl-card span-3">
-      <h2>Today P&amp;L</h2>
-      <div class="pnl-summary">
-        <div class="pnl-total-wrap">
-          <span class="pnl-label">Total</span>
-          <span id="pnl-total" class="pnl-total neutral">₹0.00</span>
-        </div>
-        <div class="pnl-breakdown">
-          <div><span class="pnl-label">Realized</span><span id="pnl-realized">₹0.00</span></div>
-          <div><span class="pnl-label">Unrealized</span><span id="pnl-unrealized">₹0.00</span></div>
-        </div>
-      </div>
-      <div id="pnl-engines" class="pnl-engines"></div>
-    </section>
-
-    <!-- Engine Panels -->
-    <section class="card engine-panel" id="panel-normal">
-      <h2>Normal Engine</h2>
-      <div class="engine-stats">
-        <div><span class="stat-label">Status</span><span class="engine-status" data-engine="normal">IDLE</span></div>
-        <div><span class="stat-label">Allocation</span><span class="engine-alloc" data-engine="normal">30%</span></div>
-        <div><span class="stat-label">Margin</span><span class="engine-margin" data-engine="normal">₹0.00</span></div>
-        <div><span class="stat-label">Today P&amp;L</span><span class="engine-pnl" data-engine="normal">₹0.00</span></div>
-        <div><span class="stat-label">Positions</span><span class="engine-positions" data-engine="normal">0</span></div>
-      </div>
-      <p class="engine-note" data-engine="normal">Mode: <span class="engine-mode" data-engine="normal">MONITOR</span></p>
-      <div class="engine-controls" data-engine="normal">
-        <button class="btn-ghost btn-xs eng-btn-start" data-engine="normal">Start</button>
-        <button class="btn-ghost btn-xs eng-btn-stop" data-engine="normal">Stop</button>
-        <button class="btn-ghost btn-xs eng-btn-auto" data-engine="normal">Auto</button>
-        <button class="btn-ghost btn-xs eng-btn-manual" data-engine="normal">Manual</button>
-        <button class="btn-warn btn-xs eng-btn-exit" data-engine="normal">Exit</button>
-      </div>
-      <div class="engine-intel" data-engine="normal">
-        <div class="intel-row"><span>Phase</span><span class="engine-phase">—</span></div>
-        <div class="intel-row"><span>Decision</span><span class="engine-decision">—</span></div>
-        <div class="intel-row"><span>Confidence</span><span class="engine-confidence">—</span></div>
-        <div class="intel-row"><span>Opportunity</span><span class="engine-opportunity">—</span></div>
-        <div class="intel-row"><span>Entry Quality</span><span class="engine-entry-quality">—</span></div>
-        <div class="intel-row"><span>Momentum</span><span class="engine-momentum">—</span></div>
-        <div class="intel-row"><span>Liquidity</span><span class="engine-liquidity">—</span></div>
-        <div class="intel-row"><span>Health</span><span class="engine-health">—</span></div>
-        <div class="intel-row"><span>Target</span><span class="engine-target">—</span></div>
-        <div class="intel-row"><span>SL</span><span class="engine-sl">—</span></div>
-        <ul class="engine-reasons"></ul>
-      </div>
-    </section>
-
-    <section class="card engine-panel" id="panel-wick">
-      <h2>Wick Engine</h2>
-      <div class="engine-stats">
-        <div><span class="stat-label">Status</span><span class="engine-status" data-engine="wick">IDLE</span></div>
-        <div><span class="stat-label">Allocation</span><span class="engine-alloc" data-engine="wick">30%</span></div>
-        <div><span class="stat-label">Margin</span><span class="engine-margin" data-engine="wick">₹0.00</span></div>
-        <div><span class="stat-label">Today P&amp;L</span><span class="engine-pnl" data-engine="wick">₹0.00</span></div>
-        <div><span class="stat-label">Positions</span><span class="engine-positions" data-engine="wick">0</span></div>
-      </div>
-      <p class="engine-note" data-engine="wick">Mode: <span class="engine-mode" data-engine="wick">MONITOR</span></p>
-      <div class="engine-controls" data-engine="wick">
-        <button class="btn-ghost btn-xs eng-btn-start" data-engine="wick">Start</button>
-        <button class="btn-ghost btn-xs eng-btn-stop" data-engine="wick">Stop</button>
-        <button class="btn-ghost btn-xs eng-btn-auto" data-engine="wick">Auto</button>
-        <button class="btn-ghost btn-xs eng-btn-manual" data-engine="wick">Manual</button>
-        <button class="btn-warn btn-xs eng-btn-exit" data-engine="wick">Exit</button>
-      </div>
-      <div class="engine-intel" data-engine="wick">
-        <div class="intel-row"><span>Phase</span><span class="engine-phase">—</span></div>
-        <div class="intel-row"><span>Decision</span><span class="engine-decision">—</span></div>
-        <div class="intel-row"><span>Confidence</span><span class="engine-confidence">—</span></div>
-        <div class="intel-row"><span>Opportunity</span><span class="engine-opportunity">—</span></div>
-        <div class="intel-row"><span>Entry Quality</span><span class="engine-entry-quality">—</span></div>
-        <div class="intel-row"><span>Momentum</span><span class="engine-momentum">—</span></div>
-        <div class="intel-row"><span>Liquidity</span><span class="engine-liquidity">—</span></div>
-        <div class="intel-row"><span>Health</span><span class="engine-health">—</span></div>
-        <div class="intel-row"><span>Target</span><span class="engine-target">—</span></div>
-        <div class="intel-row"><span>SL</span><span class="engine-sl">—</span></div>
-        <ul class="engine-reasons"></ul>
-      </div>
-    </section>
-
-    <section class="card engine-panel" id="panel-ultra">
-      <h2>Ultra Engine</h2>
-      <div class="engine-stats">
-        <div><span class="stat-label">Status</span><span class="engine-status" data-engine="ultra">IDLE</span></div>
-        <div><span class="stat-label">Allocation</span><span class="engine-alloc" data-engine="ultra">40%</span></div>
-        <div><span class="stat-label">Margin</span><span class="engine-margin" data-engine="ultra">₹0.00</span></div>
-        <div><span class="stat-label">Today P&amp;L</span><span class="engine-pnl" data-engine="ultra">₹0.00</span></div>
-        <div><span class="stat-label">Positions</span><span class="engine-positions" data-engine="ultra">0</span></div>
-      </div>
-      <p class="engine-note" data-engine="ultra">Mode: <span class="engine-mode" data-engine="ultra">MONITOR</span></p>
-      <div class="engine-controls" data-engine="ultra">
-        <button class="btn-ghost btn-xs eng-btn-start" data-engine="ultra">Start</button>
-        <button class="btn-ghost btn-xs eng-btn-stop" data-engine="ultra">Stop</button>
-        <button class="btn-ghost btn-xs eng-btn-auto" data-engine="ultra">Auto</button>
-        <button class="btn-ghost btn-xs eng-btn-manual" data-engine="ultra">Manual</button>
-        <button class="btn-warn btn-xs eng-btn-exit" data-engine="ultra">Exit</button>
-      </div>
-      <div class="engine-intel" data-engine="ultra">
-        <div class="intel-row"><span>Phase</span><span class="engine-phase">—</span></div>
-        <div class="intel-row"><span>Decision</span><span class="engine-decision">—</span></div>
-        <div class="intel-row"><span>Confidence</span><span class="engine-confidence">—</span></div>
-        <div class="intel-row"><span>Opportunity</span><span class="engine-opportunity">—</span></div>
-        <div class="intel-row"><span>Entry Quality</span><span class="engine-entry-quality">—</span></div>
-        <div class="intel-row"><span>Momentum</span><span class="engine-momentum">—</span></div>
-        <div class="intel-row"><span>Liquidity</span><span class="engine-liquidity">—</span></div>
-        <div class="intel-row"><span>Health</span><span class="engine-health">—</span></div>
-        <div class="intel-row"><span>Target</span><span class="engine-target">—</span></div>
-        <div class="intel-row"><span>SL</span><span class="engine-sl">—</span></div>
-        <ul class="engine-reasons"></ul>
-      </div>
-    </section>
-
-    <!-- Allocation -->
-    <section class="card allocation-card">
-      <h2>Engine Allocation</h2>
-      <div class="alloc-row">
-        <label>Normal <span id="normal-val">30%</span></label>
-        <input type="range" id="normal-slider" min="0" max="100" value="30" />
-      </div>
-      <div class="alloc-row">
-        <label>Wick <span id="wick-val">30%</span></label>
-        <input type="range" id="wick-slider" min="0" max="100" value="30" />
-      </div>
-      <div class="alloc-row">
-        <label>Ultra <span id="ultra-val">40%</span></label>
-        <input type="range" id="ultra-slider" min="0" max="100" value="40" />
-      </div>
-      <div class="alloc-total">
-        Total: <span id="alloc-total">100%</span>
-        <span id="alloc-error" class="alloc-error hidden">Must equal 100%</span>
-      </div>
-      <button id="save-alloc" class="btn-primary" disabled>Save Allocation</button>
-    </section>
-
-    <!-- Live Candles -->
-    <section class="card candles-card span-3">
-      <h2>Live 1-Minute Candles</h2>
-      <div class="candles-grid">
-        <div class="candle-panel" data-symbol="NIFTY">
-          <div class="candle-header">
-            <h3>NIFTY</h3>
-            <span class="candle-ltp" id="ltp-nifty">—</span>
+  <!-- ═══ CHARTS + MARKET SUMMARY ═══ -->
+  <section class="charts-row">
+    <div class="charts-main">
+      <h3 class="section-title">Live 1-Minute Candles</h3>
+      <div class="charts-grid">
+        <div class="chart-card panel" data-symbol="NIFTY">
+          <div class="chart-hdr">
+            <div><span class="ch-sym">NIFTY 50</span><span class="ch-ltp" id="ltp-nifty">—</span><span class="ch-chg" id="chg-nifty">—</span></div>
+            <span class="ch-arrow">▾</span>
           </div>
-          <canvas id="chart-nifty" class="chart-canvas"></canvas>
-        </div>
-        <div class="candle-panel" data-symbol="ATM_CE">
-          <div class="candle-header">
-            <h3>ATM CE</h3>
-            <span class="candle-ltp" id="ltp-atm-ce">—</span>
+          <div class="chart-wrap">
+            <canvas id="chart-nifty" class="chart-canvas"></canvas>
+            <div class="price-scale" id="scale-nifty"></div>
           </div>
-          <canvas id="chart-atm-ce" class="chart-canvas"></canvas>
+          <div class="time-scale" id="time-nifty"></div>
         </div>
-        <div class="candle-panel" data-symbol="ATM_PE">
-          <div class="candle-header">
-            <h3>ATM PE</h3>
-            <span class="candle-ltp" id="ltp-atm-pe">—</span>
+        <div class="chart-card panel" data-symbol="ATM_CE">
+          <div class="chart-hdr">
+            <div><span class="ch-sym">ATM CE</span><span class="ch-ltp" id="ltp-atm-ce">—</span><span class="ch-chg" id="chg-atm-ce">—</span></div>
+            <span class="ch-arrow">▾</span>
           </div>
-          <canvas id="chart-atm-pe" class="chart-canvas"></canvas>
+          <div class="chart-wrap">
+            <canvas id="chart-atm-ce" class="chart-canvas"></canvas>
+            <div class="price-scale" id="scale-atm-ce"></div>
+          </div>
+          <div class="time-scale" id="time-atm-ce"></div>
+        </div>
+        <div class="chart-card panel" data-symbol="ATM_PE">
+          <div class="chart-hdr">
+            <div><span class="ch-sym">ATM PE</span><span class="ch-ltp" id="ltp-atm-pe">—</span><span class="ch-chg" id="chg-atm-pe">—</span></div>
+            <span class="ch-arrow">▾</span>
+          </div>
+          <div class="chart-wrap">
+            <canvas id="chart-atm-pe" class="chart-canvas"></canvas>
+            <div class="price-scale" id="scale-atm-pe"></div>
+          </div>
+          <div class="time-scale" id="time-atm-pe"></div>
         </div>
       </div>
-    </section>
+    </div>
+    <aside class="market-summary panel">
+      <h3 class="section-title">Market Summary</h3>
+      <div class="ms-grid">
+        <div class="ms-row"><span>Advances</span><b id="ms-advances" class="positive">—</b></div>
+        <div class="ms-row"><span>Declines</span><b id="ms-declines" class="negative">—</b></div>
+        <div class="ms-row"><span>Unchanged</span><b id="ms-unchanged">—</b></div>
+        <div class="ms-row"><span>Total Volume</span><b id="ms-volume">—</b></div>
+        <div class="ms-row"><span>Total Value</span><b id="ms-value">—</b></div>
+        <div class="ms-row"><span>VIX</span><b id="ms-vix">—</b></div>
+        <div class="ms-row"><span>PCR</span><b id="ms-pcr">—</b></div>
+        <div class="ms-row"><span>Max Pain</span><b id="ms-maxpain">—</b></div>
+        <div class="ms-row"><span>FII Cash</span><b id="ms-fii" class="positive">—</b></div>
+        <div class="ms-row"><span>DII Cash</span><b id="ms-dii" class="positive">—</b></div>
+      </div>
+    </aside>
+  </section>
 
-    <!-- Logs -->
-    <section class="card logs-card span-3">
-      <div class="logs-header">
-        <h2>Live Logs</h2>
+  <!-- ═══ LOGS + TIMELINE ═══ -->
+  <section class="bottom-row">
+    <div class="logs-panel panel">
+      <div class="logs-toolbar">
+        <h3 class="section-title">Live Logs</h3>
         <div class="log-tabs">
           <button class="log-tab active" data-log="system">System</button>
           <button class="log-tab" data-log="broker">Broker</button>
@@ -270,16 +329,34 @@
           <button class="log-tab" data-log="audit">Audit</button>
           <button class="log-tab" data-log="execution">Execution</button>
         </div>
-        <button id="btn-clear-logs-view" class="btn-ghost btn-sm">Clear View</button>
+        <div class="log-controls">
+          <label class="toggle-label"><input type="checkbox" id="log-autoscroll" checked /> Auto-scroll</label>
+          <button id="btn-pause-logs" class="mc-btn sm">Pause</button>
+          <button id="btn-clear-logs-view" class="mc-btn sm">Clear</button>
+          <button id="btn-export-logs" class="mc-btn sm">Export</button>
+        </div>
       </div>
       <pre id="logs-output" class="logs-output">Loading logs…</pre>
-    </section>
-  </main>
+    </div>
+    <div class="timeline-panel panel">
+      <h3 class="section-title">Trading Timeline</h3>
+      <div class="timeline" id="timeline">
+        <div class="tl-item" data-phase="OFFLINE"><span class="tl-time">08:30</span><span class="tl-label">Prep</span></div>
+        <div class="tl-item" data-phase="PRE_MARKET"><span class="tl-time">09:00</span><span class="tl-label">Analysis</span></div>
+        <div class="tl-item" data-phase="BIAS_LOCKED"><span class="tl-time">09:07</span><span class="tl-label">Bias Lock</span></div>
+        <div class="tl-item" data-phase="TRADING"><span class="tl-time">09:15</span><span class="tl-label">Trading</span></div>
+        <div class="tl-item" data-phase="NO_NEW_ENTRIES"><span class="tl-time">15:10</span><span class="tl-label">No Entry</span></div>
+        <div class="tl-item" data-phase="FORCE_EXIT"><span class="tl-time">15:14</span><span class="tl-label">Exit All</span></div>
+        <div class="tl-item" data-phase="PREWATCH"><span class="tl-time">15:30</span><span class="tl-label">Pre-Watch</span></div>
+        <div class="tl-item" data-phase="SHUTDOWN"><span class="tl-time">16:00</span><span class="tl-label">Shutdown</span></div>
+      </div>
+    </div>
+  </section>
 
   <footer class="footer">
     <span id="last-updated">—</span>
     <span class="footer-sep">·</span>
-    <span id="poll-status">Polling active</span>
+    <span id="poll-status">LIVE MODE · Polling active</span>
   </footer>
 
   <script src="/static/js/dashboard.js"></script>
