@@ -21,6 +21,7 @@ from app.execution.execution_models import (
 )
 from app.execution.order_lifecycle import OrderLifecycle
 from app.execution.quantity import calculate_lots
+from app.intelligence.time_rules import engine_new_entries_allowed, special_no_entry_block_message
 from app.models.enums import EngineOperatingMode, ExecutionState, ExitReason
 from app.risk.locks import TradingLocks
 from app.risk.risk_manager import RiskManager
@@ -198,13 +199,14 @@ class ExecutionController:
             lifecycle.transition(ExecutionState.BLOCKED_BY_RISK)
             return f"Engine {signal.engine} already has open position"
 
-        if signal.action.startswith("BUY") and not self._scheduler.new_entries_allowed:
-            lifecycle.transition(ExecutionState.BLOCKED_BY_TIME)
-            return "New entries blocked by session schedule"
-
         if self._scheduler.force_exit_active and signal.action.startswith("BUY"):
             lifecycle.transition(ExecutionState.BLOCKED_BY_TIME)
             return "Force-exit window — entries blocked"
+
+        if signal.action.startswith("BUY") and not engine_new_entries_allowed(signal.engine, datetime.now()):
+            lifecycle.transition(ExecutionState.BLOCKED_BY_TIME)
+            block_msg = special_no_entry_block_message(signal.engine, datetime.now())
+            return block_msg or "New entries blocked by session schedule"
 
         sig_hash = hashlib.md5(f"{signal.engine}|{signal.action}|{signal.token}".encode()).hexdigest()
         hash_arg = None if skip_duplicate else (sig_hash if signal.action.startswith("BUY") else None)

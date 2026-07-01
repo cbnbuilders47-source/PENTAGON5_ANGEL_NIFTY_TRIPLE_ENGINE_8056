@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from app.engines.decision_logger import log_decision
 from app.engines.state_machine import EngineStateMachine
-from app.intelligence.time_rules import force_exit_required, new_entries_allowed
+from app.intelligence.time_rules import force_exit_required, wick_entries_allowed
 from app.intelligence.types import EngineDecisionSnapshot, TradingContext
 from app.intelligence.wick import detect_wick
 from app.models.enums import EnginePhase, WickDecision
@@ -32,7 +32,7 @@ class WickEngine:
             self._sm.advance_for_decision(WickDecision.WOULD_EXIT.value, has_position=True)
             return snap
 
-        if not new_entries_allowed(ctx.session_phase) and not has_live_position:
+        if not wick_entries_allowed(ctx.now) and not has_live_position:
             return self._finalize(WickDecision.WAIT.value, ["Outside trading window"], ctx, 0.0, 0.0, 0.0)
 
         if allocated_margin <= 0:

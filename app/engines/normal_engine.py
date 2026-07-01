@@ -9,7 +9,11 @@ from app.engines.state_machine import EngineStateMachine
 from app.intelligence.liquidity import liquidity_ok, liquidity_score
 from app.intelligence.momentum import momentum_confirmed, momentum_score, trend_confirmed
 from app.intelligence.opportunity import entry_quality_score, market_health_score, opportunity_score
-from app.intelligence.time_rules import force_exit_required, new_entries_allowed
+from app.intelligence.time_rules import (
+    engine_buy_blocked_special_window,
+    force_exit_required,
+    new_entries_allowed,
+)
 from app.intelligence.types import AnalysisMetrics, EngineDecisionSnapshot, TradingContext
 from app.models.enums import BiasDirection, EnginePhase, NormalDecision
 
@@ -44,6 +48,14 @@ class NormalEngine:
 
         if not new_entries_allowed(ctx.session_phase) and not has_live_position:
             return self._finalize(NormalDecision.WAIT.value, reasons + ["Outside trading window"], ctx, metrics)
+
+        if engine_buy_blocked_special_window(self.NAME, ctx.now) and not has_live_position:
+            return self._finalize(
+                NormalDecision.WAIT.value,
+                reasons + ["Special No-Entry Window (14:57–15:01)"],
+                ctx,
+                metrics,
+            )
 
         if allocated_margin <= 0:
             return self._finalize(NormalDecision.BLOCKED.value, reasons + ["Insufficient allocated margin"], ctx, metrics)

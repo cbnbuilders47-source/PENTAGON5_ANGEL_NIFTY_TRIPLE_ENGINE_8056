@@ -1,7 +1,9 @@
 """Execution controller gate and mode tests."""
 
+from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from app.core.state import AppState
 from app.execution.execution_controller import ExecutionController
@@ -10,6 +12,19 @@ from app.models.enums import EngineOperatingMode, ExecutionState, ExitReason
 from app.risk.locks import TradingLocks
 from app.risk.risk_manager import RiskManager
 from app.scheduler.session_scheduler import SessionScheduler
+
+TRADING_HOUR = datetime(2026, 7, 1, 10, 0, 0)
+
+
+@pytest.fixture(autouse=True)
+def trading_hours_clock():
+    with (
+        patch("app.execution.execution_controller.datetime") as ctrl_dt,
+        patch("app.risk.risk_manager.datetime") as risk_dt,
+    ):
+        ctrl_dt.now.return_value = TRADING_HOUR
+        risk_dt.now.return_value = TRADING_HOUR
+        yield
 
 
 def _make_controller(state: AppState | None = None) -> ExecutionController:

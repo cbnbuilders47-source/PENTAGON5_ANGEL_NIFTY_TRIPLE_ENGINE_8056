@@ -13,6 +13,8 @@ from app.core.constants import (
     NEXT_DAY_PREWATCH,
     PRE_MARKET_END,
     PRE_MARKET_START,
+    SPECIAL_NO_ENTRY_END,
+    SPECIAL_NO_ENTRY_START,
     STOP_NEW_ENTRIES,
     TRADING_START,
 )
@@ -52,6 +54,8 @@ class SessionScheduler:
             SchedulerEvent(SessionPhase.PRE_MARKET, "pre_market_analysis", PRE_MARKET_START),
             SchedulerEvent(SessionPhase.BIAS_LOCKED, "bias_lock", BIAS_LOCK),
             SchedulerEvent(SessionPhase.TRADING, "trading_start", TRADING_START),
+            SchedulerEvent(SessionPhase.TRADING, "special_no_entry_start", SPECIAL_NO_ENTRY_START),
+            SchedulerEvent(SessionPhase.TRADING, "special_no_entry_resume", SPECIAL_NO_ENTRY_END),
             SchedulerEvent(SessionPhase.NO_NEW_ENTRIES, "stop_new_entries", STOP_NEW_ENTRIES),
             SchedulerEvent(SessionPhase.FORCE_EXIT, "force_exit_all", FORCE_EXIT),
             SchedulerEvent(SessionPhase.PREWATCH, "next_day_prewatch", NEXT_DAY_PREWATCH),

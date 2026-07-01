@@ -8,6 +8,7 @@ from datetime import datetime
 from app.broker.readiness import BrokerReadinessGate
 from app.core.logging import get_logger
 from app.core.state import AppState
+from app.intelligence.time_rules import engine_new_entries_allowed, special_no_entry_block_message
 from app.risk.locks import TradingLocks
 from app.scheduler.session_scheduler import SessionScheduler
 
@@ -80,7 +81,10 @@ class RiskManager:
         if self._scheduler.force_exit_active:
             return False, "Force-exit window active"
 
-        if not self._scheduler.new_entries_allowed:
+        if not engine_new_entries_allowed(engine, datetime.now()):
+            block_msg = special_no_entry_block_message(engine, datetime.now())
+            if block_msg:
+                return False, block_msg
             return False, "New entries not allowed in current session phase"
 
         if self._state.available_margin <= 0:

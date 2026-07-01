@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from app.engines.decision_logger import log_decision
 from app.engines.state_machine import EngineStateMachine
-from app.intelligence.time_rules import force_exit_required, new_entries_allowed
+from app.intelligence.time_rules import (
+    engine_buy_blocked_special_window,
+    force_exit_required,
+    new_entries_allowed,
+)
 from app.intelligence.types import EngineDecisionSnapshot, TradingContext
 from app.intelligence.ultra_signals import analyze_ultra
 from app.models.enums import EnginePhase, UltraDecision
@@ -30,6 +34,15 @@ class UltraEngine:
 
         if not new_entries_allowed(ctx.session_phase) and not has_live_position:
             return self._finalize(UltraDecision.WAIT.value, ["Outside trading window"], ctx, None, None)
+
+        if engine_buy_blocked_special_window(self.NAME, ctx.now) and not has_live_position:
+            return self._finalize(
+                UltraDecision.WAIT.value,
+                ["Special No-Entry Window (14:57–15:01)"],
+                ctx,
+                None,
+                None,
+            )
 
         if allocated_margin <= 0:
             return self._finalize(UltraDecision.WAIT.value, ["Insufficient margin"], ctx, None, None)
