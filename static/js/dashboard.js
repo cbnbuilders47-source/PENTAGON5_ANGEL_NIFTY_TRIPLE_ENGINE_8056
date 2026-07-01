@@ -47,6 +47,8 @@ const READINESS_LABELS = {
 
 const chartState = {};
 const chartCrosshair = {};
+const cachedCandles = { NIFTY: [], ATM_CE: [], ATM_PE: [] };
+let chartResizeTimer = null;
 
 let brokerBusy = false;
 let logsPaused = false;
@@ -526,17 +528,32 @@ async function refreshTimeline() {
 // ── Candles ────────────────────────────────────────────────
 
 function setupCanvas(canvas) {
-  const wrap = canvas.closest(".chart-wrap") || canvas.parentElement;
+  const wrap = canvas.closest(".chart-wrap");
   const dpr = window.devicePixelRatio || 1;
-  const w = Math.max((wrap?.clientWidth || 280) - 40, 120);
   const h = canvas.offsetHeight || parseInt(getComputedStyle(canvas).height, 10) || 220;
-  canvas.width = w * dpr;
-  canvas.height = h * dpr;
-  canvas.style.width = w + "px";
-  canvas.style.height = h + "px";
+  const w = Math.max(wrap?.clientWidth || canvas.clientWidth || 120, 60);
+
+  canvas.width = Math.floor(w * dpr);
+  canvas.height = Math.floor(h * dpr);
+  canvas.style.width = `${w}px`;
+  canvas.style.height = `${h}px`;
+
   const ctx = canvas.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   return { ctx, w, h };
+}
+
+function redrawAllCharts() {
+  Object.keys(chartMap).forEach((symbol) => {
+    const candles = cachedCandles[symbol] || [];
+    const hover = chartCrosshair[symbol] ?? null;
+    drawCandles(symbol, candles, hover);
+  });
+}
+
+function scheduleChartResize() {
+  clearTimeout(chartResizeTimer);
+  chartResizeTimer = setTimeout(redrawAllCharts, 80);
 }
 
 function updateChartHeader(cfg, candles) {
@@ -592,11 +609,18 @@ function drawCandles(symbol, candles, hoverIdx = null) {
   const topPad = 10;
   const priceH = h - volH - topPad - 8;
   const leftPad = 8;
-  const barW = Math.max(2, (w - leftPad * 2) / candles.length - 1);
+  const rightEdge = w - 2;
+  const drawW = rightEdge - leftPad;
+  const barW = Math.max(2, drawW / candles.length - 1);
   const vols = candles.map((c) => c.volume || 0);
   const maxVol = Math.max(...vols, 1);
 
   const yPrice = (price) => topPad + ((hi - price) / range) * priceH;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(leftPad, 0, drawW, h);
+  ctx.clip();
 
   for (let g = 0; g <= 4; g++) {
     const y = topPad + (g / 4) * priceH;
@@ -604,7 +628,7 @@ function drawCandles(symbol, candles, hoverIdx = null) {
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(leftPad, y);
-    ctx.lineTo(w - leftPad, y);
+    ctx.lineTo(rightEdge, y);
     ctx.stroke();
   }
 
@@ -647,7 +671,7 @@ function drawCandles(symbol, candles, hoverIdx = null) {
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(leftPad, yLast);
-  ctx.lineTo(w - leftPad, yLast);
+  ctx.lineTo(rightEdge, yLast);
   ctx.stroke();
   ctx.setLineDash([]);
 
@@ -663,13 +687,15 @@ function drawCandles(symbol, candles, hoverIdx = null) {
     ctx.stroke();
     ctx.beginPath();
     ctx.moveTo(leftPad, yPrice(c.close));
-    ctx.lineTo(w - leftPad, yPrice(c.close));
+    ctx.lineTo(rightEdge, yPrice(c.close));
     ctx.stroke();
     ctx.setLineDash([]);
     if (cfg.ohlc) {
       cfg.ohlc.textContent = `O ${c.open.toFixed(2)}  H ${c.high.toFixed(2)}  L ${c.low.toFixed(2)}  C ${c.close.toFixed(2)}`;
     }
   }
+
+  ctx.restore();
 
   if (cfg.scale) {
     cfg.scale.innerHTML = `<span>${hi.toFixed(2)}</span><span style="color:var(--bull)">${last.close.toFixed(2)}</span><span>${lo.toFixed(2)}</span>`;
@@ -680,7 +706,7 @@ function drawCandles(symbol, candles, hoverIdx = null) {
     cfg.time.innerHTML = `<span>${t0}</span><span>${t1}</span>`;
   }
 
-  chartState[symbol] = { candles, w, h, lo, hi, range, barW, leftPad, topPad, priceH, volH };
+  chartState[symbol] = { candles, w, h, lo, hi, range, barW, leftPad, topPad, priceH, volH, rightEdge };
 
   if (symbol === "NIFTY") {
     lastNiftyCandles = candles;
@@ -728,8 +754,10 @@ async function fetchCandles(symbol) {
 async function refreshCandles() {
   for (const symbol of Object.keys(chartMap)) {
     const candles = await fetchCandles(symbol);
-    drawCandles(symbol, candles);
+    cachedCandles[symbol] = candles;
+    drawCandles(symbol, candles, chartCrosshair[symbol] ?? null);
   }
+  scheduleChartResize();
 }
 
 // ── Market summary (placeholders) ──────────────────────────
@@ -1066,6 +1094,8 @@ function init() {
   refreshLogs();
   refreshTimeline();
   syncMarketSummaryRows();
+  requestAnimationFrame(() => scheduleChartResize());
+  setTimeout(scheduleChartResize, 250);
 
   setInterval(refreshHealth, POLL.health);
   setInterval(refreshReadiness, POLL.health);
@@ -1077,5 +1107,5 @@ function init() {
   setInterval(refreshTimeline, POLL.scheduler);
 }
 
-window.addEventListener("resize", () => refreshCandles());
+window.addEventListener("resize", scheduleChartResize);
 init();

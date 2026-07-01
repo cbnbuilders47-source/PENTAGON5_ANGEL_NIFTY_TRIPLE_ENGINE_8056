@@ -340,59 +340,65 @@
 
   <!-- ═══ CHARTS + MARKET SUMMARY ═══ -->
   <section class="charts-row">
-    <div class="charts-main">
-      <h3 class="section-title">Live 1-Minute Candles</h3>
-      <div class="charts-grid">
-        <div class="chart-card panel" data-symbol="NIFTY">
-          <div class="chart-hdr">
-            <div class="chart-hdr-main">
-              <span class="ch-sym">NIFTY 50</span>
-              <span class="ch-ltp" id="ltp-nifty">—</span>
-              <span class="ch-chg" id="chg-nifty">—</span>
-              <span class="ch-ohlc" id="ohlc-nifty">O — H — L — C —</span>
-            </div>
-            <span class="ch-arrow">▾</span>
-          </div>
-          <div class="chart-wrap">
-            <canvas id="chart-nifty" class="chart-canvas"></canvas>
-            <div class="price-scale" id="scale-nifty"></div>
-          </div>
-          <div class="time-scale" id="time-nifty"></div>
+    <h3 class="section-title charts-section-title">Live 1-Minute Candles</h3>
+
+    <div class="chart-card panel" data-symbol="NIFTY">
+      <div class="chart-hdr">
+        <div class="chart-hdr-main">
+          <span class="ch-sym">NIFTY 50</span>
+          <span class="ch-ltp" id="ltp-nifty">—</span>
+          <span class="ch-chg" id="chg-nifty">—</span>
+          <span class="ch-ohlc" id="ohlc-nifty">O — H — L — C —</span>
         </div>
-        <div class="chart-card panel" data-symbol="ATM_CE">
-          <div class="chart-hdr">
-            <div class="chart-hdr-main">
-              <span class="ch-sym">ATM CE</span>
-              <span class="ch-ltp" id="ltp-atm-ce">—</span>
-              <span class="ch-chg" id="chg-atm-ce">—</span>
-              <span class="ch-ohlc" id="ohlc-atm-ce">O — H — L — C —</span>
-            </div>
-            <span class="ch-arrow">▾</span>
-          </div>
-          <div class="chart-wrap">
-            <canvas id="chart-atm-ce" class="chart-canvas"></canvas>
-            <div class="price-scale" id="scale-atm-ce"></div>
-          </div>
-          <div class="time-scale" id="time-atm-ce"></div>
-        </div>
-        <div class="chart-card panel" data-symbol="ATM_PE">
-          <div class="chart-hdr">
-            <div class="chart-hdr-main">
-              <span class="ch-sym">ATM PE</span>
-              <span class="ch-ltp" id="ltp-atm-pe">—</span>
-              <span class="ch-chg" id="chg-atm-pe">—</span>
-              <span class="ch-ohlc" id="ohlc-atm-pe">O — H — L — C —</span>
-            </div>
-            <span class="ch-arrow">▾</span>
-          </div>
-          <div class="chart-wrap">
-            <canvas id="chart-atm-pe" class="chart-canvas"></canvas>
-            <div class="price-scale" id="scale-atm-pe"></div>
-          </div>
-          <div class="time-scale" id="time-atm-pe"></div>
-        </div>
+        <span class="ch-arrow">▾</span>
       </div>
+      <div class="chart-body">
+        <div class="chart-wrap">
+          <canvas id="chart-nifty" class="chart-canvas"></canvas>
+        </div>
+        <div class="price-scale" id="scale-nifty"></div>
+      </div>
+      <div class="time-scale" id="time-nifty"></div>
     </div>
+
+    <div class="chart-card panel" data-symbol="ATM_CE">
+      <div class="chart-hdr">
+        <div class="chart-hdr-main">
+          <span class="ch-sym">ATM CE</span>
+          <span class="ch-ltp" id="ltp-atm-ce">—</span>
+          <span class="ch-chg" id="chg-atm-ce">—</span>
+          <span class="ch-ohlc" id="ohlc-atm-ce">O — H — L — C —</span>
+        </div>
+        <span class="ch-arrow">▾</span>
+      </div>
+      <div class="chart-body">
+        <div class="chart-wrap">
+          <canvas id="chart-atm-ce" class="chart-canvas"></canvas>
+        </div>
+        <div class="price-scale" id="scale-atm-ce"></div>
+      </div>
+      <div class="time-scale" id="time-atm-ce"></div>
+    </div>
+
+    <div class="chart-card panel" data-symbol="ATM_PE">
+      <div class="chart-hdr">
+        <div class="chart-hdr-main">
+          <span class="ch-sym">ATM PE</span>
+          <span class="ch-ltp" id="ltp-atm-pe">—</span>
+          <span class="ch-chg" id="chg-atm-pe">—</span>
+          <span class="ch-ohlc" id="ohlc-atm-pe">O — H — L — C —</span>
+        </div>
+        <span class="ch-arrow">▾</span>
+      </div>
+      <div class="chart-body">
+        <div class="chart-wrap">
+          <canvas id="chart-atm-pe" class="chart-canvas"></canvas>
+        </div>
+        <div class="price-scale" id="scale-atm-pe"></div>
+      </div>
+      <div class="time-scale" id="time-atm-pe"></div>
+    </div>
+
     <aside class="market-summary panel">
       <h3 class="section-title">Market Summary</h3>
       <table class="ms-table">
