@@ -8,22 +8,35 @@
 </head>
 <body>
   <div class="glow-bg"></div>
+
   <header class="header">
     <div class="brand">
       <span class="brand-mark">P5</span>
       <div>
         <h1>{{ app_name }}</h1>
-        <p class="subtitle">NIFTY Options · LIVE · Port 8056</p>
+        <p class="subtitle">NIFTY Options · LIVE ONLY · Port 8056</p>
       </div>
     </div>
-    <div class="status-pills">
-      <span id="session-phase" class="pill">OFFLINE</span>
-      <span id="broker-status" class="pill pill-warn">BROKER OFFLINE</span>
-      <span class="pill pill-live">LIVE ONLY</span>
+    <div class="header-right">
+      <div class="status-pills">
+        <span id="health-status" class="pill">HEALTH —</span>
+        <span id="ready-status" class="pill">READY —</span>
+        <span id="session-phase" class="pill">OFFLINE</span>
+        <span id="broker-status" class="pill pill-warn">BROKER OFFLINE</span>
+        <span id="ws-status" class="pill pill-warn">WS OFFLINE</span>
+        <span class="pill pill-live">LIVE ONLY</span>
+      </div>
+      <div class="broker-actions">
+        <button id="btn-connect" class="btn-primary btn-sm">Connect Broker</button>
+        <button id="btn-disconnect" class="btn-secondary btn-sm" disabled>Disconnect</button>
+      </div>
     </div>
   </header>
 
+  <div id="toast" class="toast hidden"></div>
+
   <main class="grid">
+    <!-- Market Bias -->
     <section class="card bias-card">
       <h2>Market Bias</h2>
       <div id="bias-display" class="bias-display neutral">
@@ -31,14 +44,117 @@
         <span id="bias-confidence" class="bias-pct">0%</span>
       </div>
       <p id="bias-locked" class="bias-locked hidden">Bias Locked</p>
+      <div class="intel-meta">
+        <span id="market-mode" class="meta-tag">Mode: —</span>
+        <span id="ai-recommendation" class="meta-tag">AI: —</span>
+        <span id="preferred-engine" class="meta-tag tag-ok">Preferred: —</span>
+      </div>
     </section>
 
+    <!-- Margin -->
     <section class="card margin-card">
       <h2>Available Margin</h2>
       <p id="available-margin" class="big-number">₹0.00</p>
       <p class="hint">Auto-fetched from Angel after login</p>
+      <div class="broker-meta">
+        <span id="broker-tokens" class="meta-tag">Tokens: —</span>
+        <span id="atm-strike" class="meta-tag">ATM: —</span>
+      </div>
     </section>
 
+    <!-- Today P&L -->
+    <section class="card pnl-card span-3">
+      <h2>Today P&amp;L</h2>
+      <div class="pnl-summary">
+        <div class="pnl-total-wrap">
+          <span class="pnl-label">Total</span>
+          <span id="pnl-total" class="pnl-total neutral">₹0.00</span>
+        </div>
+        <div class="pnl-breakdown">
+          <div><span class="pnl-label">Realized</span><span id="pnl-realized">₹0.00</span></div>
+          <div><span class="pnl-label">Unrealized</span><span id="pnl-unrealized">₹0.00</span></div>
+        </div>
+      </div>
+      <div id="pnl-engines" class="pnl-engines"></div>
+    </section>
+
+    <!-- Engine Panels -->
+    <section class="card engine-panel" id="panel-normal">
+      <h2>Normal Engine</h2>
+      <div class="engine-stats">
+        <div><span class="stat-label">Status</span><span class="engine-status" data-engine="normal">IDLE</span></div>
+        <div><span class="stat-label">Allocation</span><span class="engine-alloc" data-engine="normal">30%</span></div>
+        <div><span class="stat-label">Margin</span><span class="engine-margin" data-engine="normal">₹0.00</span></div>
+        <div><span class="stat-label">Today P&amp;L</span><span class="engine-pnl" data-engine="normal">₹0.00</span></div>
+        <div><span class="stat-label">Positions</span><span class="engine-positions" data-engine="normal">0</span></div>
+      </div>
+      <p class="engine-note">Execution disabled — monitoring only</p>
+      <div class="engine-intel" data-engine="normal">
+        <div class="intel-row"><span>Phase</span><span class="engine-phase">—</span></div>
+        <div class="intel-row"><span>Decision</span><span class="engine-decision">—</span></div>
+        <div class="intel-row"><span>Confidence</span><span class="engine-confidence">—</span></div>
+        <div class="intel-row"><span>Opportunity</span><span class="engine-opportunity">—</span></div>
+        <div class="intel-row"><span>Entry Quality</span><span class="engine-entry-quality">—</span></div>
+        <div class="intel-row"><span>Momentum</span><span class="engine-momentum">—</span></div>
+        <div class="intel-row"><span>Liquidity</span><span class="engine-liquidity">—</span></div>
+        <div class="intel-row"><span>Health</span><span class="engine-health">—</span></div>
+        <div class="intel-row"><span>Target</span><span class="engine-target">—</span></div>
+        <div class="intel-row"><span>SL</span><span class="engine-sl">—</span></div>
+        <ul class="engine-reasons"></ul>
+      </div>
+    </section>
+
+    <section class="card engine-panel" id="panel-wick">
+      <h2>Wick Engine</h2>
+      <div class="engine-stats">
+        <div><span class="stat-label">Status</span><span class="engine-status" data-engine="wick">IDLE</span></div>
+        <div><span class="stat-label">Allocation</span><span class="engine-alloc" data-engine="wick">30%</span></div>
+        <div><span class="stat-label">Margin</span><span class="engine-margin" data-engine="wick">₹0.00</span></div>
+        <div><span class="stat-label">Today P&amp;L</span><span class="engine-pnl" data-engine="wick">₹0.00</span></div>
+        <div><span class="stat-label">Positions</span><span class="engine-positions" data-engine="wick">0</span></div>
+      </div>
+      <p class="engine-note">Execution disabled — monitoring only</p>
+      <div class="engine-intel" data-engine="wick">
+        <div class="intel-row"><span>Phase</span><span class="engine-phase">—</span></div>
+        <div class="intel-row"><span>Decision</span><span class="engine-decision">—</span></div>
+        <div class="intel-row"><span>Confidence</span><span class="engine-confidence">—</span></div>
+        <div class="intel-row"><span>Opportunity</span><span class="engine-opportunity">—</span></div>
+        <div class="intel-row"><span>Entry Quality</span><span class="engine-entry-quality">—</span></div>
+        <div class="intel-row"><span>Momentum</span><span class="engine-momentum">—</span></div>
+        <div class="intel-row"><span>Liquidity</span><span class="engine-liquidity">—</span></div>
+        <div class="intel-row"><span>Health</span><span class="engine-health">—</span></div>
+        <div class="intel-row"><span>Target</span><span class="engine-target">—</span></div>
+        <div class="intel-row"><span>SL</span><span class="engine-sl">—</span></div>
+        <ul class="engine-reasons"></ul>
+      </div>
+    </section>
+
+    <section class="card engine-panel" id="panel-ultra">
+      <h2>Ultra Engine</h2>
+      <div class="engine-stats">
+        <div><span class="stat-label">Status</span><span class="engine-status" data-engine="ultra">IDLE</span></div>
+        <div><span class="stat-label">Allocation</span><span class="engine-alloc" data-engine="ultra">40%</span></div>
+        <div><span class="stat-label">Margin</span><span class="engine-margin" data-engine="ultra">₹0.00</span></div>
+        <div><span class="stat-label">Today P&amp;L</span><span class="engine-pnl" data-engine="ultra">₹0.00</span></div>
+        <div><span class="stat-label">Positions</span><span class="engine-positions" data-engine="ultra">0</span></div>
+      </div>
+      <p class="engine-note">Execution disabled — monitoring only</p>
+      <div class="engine-intel" data-engine="ultra">
+        <div class="intel-row"><span>Phase</span><span class="engine-phase">—</span></div>
+        <div class="intel-row"><span>Decision</span><span class="engine-decision">—</span></div>
+        <div class="intel-row"><span>Confidence</span><span class="engine-confidence">—</span></div>
+        <div class="intel-row"><span>Opportunity</span><span class="engine-opportunity">—</span></div>
+        <div class="intel-row"><span>Entry Quality</span><span class="engine-entry-quality">—</span></div>
+        <div class="intel-row"><span>Momentum</span><span class="engine-momentum">—</span></div>
+        <div class="intel-row"><span>Liquidity</span><span class="engine-liquidity">—</span></div>
+        <div class="intel-row"><span>Health</span><span class="engine-health">—</span></div>
+        <div class="intel-row"><span>Target</span><span class="engine-target">—</span></div>
+        <div class="intel-row"><span>SL</span><span class="engine-sl">—</span></div>
+        <ul class="engine-reasons"></ul>
+      </div>
+    </section>
+
+    <!-- Allocation -->
     <section class="card allocation-card">
       <h2>Engine Allocation</h2>
       <div class="alloc-row">
@@ -60,32 +176,48 @@
       <button id="save-alloc" class="btn-primary" disabled>Save Allocation</button>
     </section>
 
-    <section class="card engines-card">
-      <h2>Engines</h2>
-      <div id="engines-list" class="engines-list"></div>
-    </section>
-
-    <section class="card candles-card span-2">
+    <!-- Live Candles -->
+    <section class="card candles-card span-3">
       <h2>Live 1-Minute Candles</h2>
       <div class="candles-grid">
         <div class="candle-panel" data-symbol="NIFTY">
-          <h3>NIFTY</h3>
-          <canvas id="chart-nifty" width="400" height="180"></canvas>
+          <div class="candle-header">
+            <h3>NIFTY</h3>
+            <span class="candle-ltp" id="ltp-nifty">—</span>
+          </div>
+          <canvas id="chart-nifty" class="chart-canvas"></canvas>
         </div>
         <div class="candle-panel" data-symbol="ATM_CE">
-          <h3>ATM CE</h3>
-          <canvas id="chart-atm-ce" width="400" height="180"></canvas>
+          <div class="candle-header">
+            <h3>ATM CE</h3>
+            <span class="candle-ltp" id="ltp-atm-ce">—</span>
+          </div>
+          <canvas id="chart-atm-ce" class="chart-canvas"></canvas>
         </div>
         <div class="candle-panel" data-symbol="ATM_PE">
-          <h3>ATM PE</h3>
-          <canvas id="chart-atm-pe" width="400" height="180"></canvas>
+          <div class="candle-header">
+            <h3>ATM PE</h3>
+            <span class="candle-ltp" id="ltp-atm-pe">—</span>
+          </div>
+          <canvas id="chart-atm-pe" class="chart-canvas"></canvas>
         </div>
       </div>
+    </section>
+
+    <!-- Logs -->
+    <section class="card logs-card span-3">
+      <div class="logs-header">
+        <h2>Live Logs</h2>
+        <button id="btn-clear-logs-view" class="btn-ghost btn-sm">Clear View</button>
+      </div>
+      <pre id="logs-output" class="logs-output">Loading logs…</pre>
     </section>
   </main>
 
   <footer class="footer">
     <span id="last-updated">—</span>
+    <span class="footer-sep">·</span>
+    <span id="poll-status">Polling active</span>
   </footer>
 
   <script src="/static/js/dashboard.js"></script>

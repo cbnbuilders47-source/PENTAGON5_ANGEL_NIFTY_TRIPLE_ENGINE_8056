@@ -62,6 +62,7 @@ async def test_margin_fetch_updates_state(settings):
 
     assert margin == 150000.50
     assert state.available_margin == 150000.50
+    assert state.today_realized_pnl == 0.0
 
 
 def test_token_manager_validation():

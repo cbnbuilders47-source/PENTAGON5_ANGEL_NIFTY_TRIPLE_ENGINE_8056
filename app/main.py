@@ -1,5 +1,6 @@
 """FastAPI application entry point."""
 
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
 from app.core.state import get_app_state
 from app.engines.adaptive_controller import AdaptiveController
+from app.engines.runtime import intelligence_loop
 from app.market.atm_manager import ATMManager
 from app.market.candle_builder import CandleBuilder
 from app.market.instrument_master import InstrumentMaster
@@ -55,7 +57,7 @@ async def lifespan(app: FastAPI):
     app.state.margin_manager = MarginManager(app_state, angel_manager)
     app.state.instrument_master = instrument_master
     app.state.atm_manager = atm_manager
-    app.state.adaptive_controller = AdaptiveController(app_state)
+    app.state.adaptive_controller = AdaptiveController(app_state, candle_builder)
     app.state.risk_manager = RiskManager(app_state)
     app.state.trading_locks = TradingLocks()
     app.state.broker_session = BrokerSessionService(
@@ -71,7 +73,13 @@ async def lifespan(app: FastAPI):
     )
 
     logger.info("%s v%s starting on port %s", settings.app_name, settings.app_version, settings.port)
+    intel_task = asyncio.create_task(intelligence_loop(app))
     yield
+    intel_task.cancel()
+    try:
+        await intel_task
+    except asyncio.CancelledError:
+        pass
 
     await app.state.broker_session.disconnect()
     logger.info("Application shutdown complete")

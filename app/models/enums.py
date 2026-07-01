@@ -17,6 +17,58 @@ class EngineStatus(str, Enum):
     ERROR = "ERROR"
 
 
+class EnginePhase(str, Enum):
+    IDLE = "IDLE"
+    READY = "READY"
+    WAIT_CONFIRMATION = "WAIT_CONFIRMATION"
+    ENTRY_READY = "ENTRY_READY"
+    POSITION_ACTIVE = "POSITION_ACTIVE"
+    EXIT_READY = "EXIT_READY"
+    COMPLETED = "COMPLETED"
+    RESET = "RESET"
+
+
+class NormalDecision(str, Enum):
+    READY = "READY"
+    WAIT = "WAIT"
+    BLOCKED = "BLOCKED"
+    WOULD_BUY_CE = "WOULD_BUY_CE"
+    WOULD_BUY_PE = "WOULD_BUY_PE"
+    WOULD_EXIT = "WOULD_EXIT"
+
+
+class WickDecision(str, Enum):
+    READY = "READY"
+    WAIT = "WAIT"
+    WOULD_BUY = "WOULD_BUY"
+    WOULD_EXIT = "WOULD_EXIT"
+
+
+class UltraDecision(str, Enum):
+    READY = "READY"
+    WAIT = "WAIT"
+    WOULD_BUY = "WOULD_BUY"
+    WOULD_EXIT = "WOULD_EXIT"
+
+
+class MarketMode(str, Enum):
+    TRENDING = "TRENDING"
+    RANGE = "RANGE"
+    REVERSAL = "REVERSAL"
+    BREAKOUT = "BREAKOUT"
+    VOLATILE = "VOLATILE"
+    SLOW_TREND = "SLOW_TREND"
+
+
+class AIRecommendation(str, Enum):
+    STRONG_BULL = "STRONG_BULL"
+    BULL = "BULL"
+    NEUTRAL = "NEUTRAL"
+    BEAR = "BEAR"
+    STRONG_BEAR = "STRONG_BEAR"
+    WAIT = "WAIT"
+
+
 class SessionPhase(str, Enum):
     OFFLINE = "OFFLINE"
     PRE_MARKET = "PRE_MARKET"

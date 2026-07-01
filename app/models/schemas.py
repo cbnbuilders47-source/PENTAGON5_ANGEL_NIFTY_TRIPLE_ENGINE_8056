@@ -63,6 +63,11 @@ class StateResponse(BaseModel):
     websocket_connected: bool
     available_margin: float
     bias: BiasInfo
+    market_mode: str = "SLOW_TREND"
+    ai_recommendation: str = "WAIT"
+    ai_confidence: float = 0.0
+    preferred_engine: str = "normal"
+    engine_decisions: dict[str, dict] = Field(default_factory=dict)
     allocations: AllocationResponse
     engines: list[EngineInfo]
     last_updated: datetime
@@ -81,3 +86,28 @@ class CandleBar(BaseModel):
 class CandleResponse(BaseModel):
     symbol: str
     candles: list[CandleBar]
+
+
+class EnginePnlInfo(BaseModel):
+    name: str
+    status: EngineStatus
+    pnl: float
+    allocation_pct: float
+    allocated_margin: float
+    open_positions: int
+
+
+class PnlResponse(BaseModel):
+    total: float
+    realized: float
+    unrealized: float
+    engines: list[EnginePnlInfo]
+
+
+class LogLine(BaseModel):
+    line: str
+
+
+class LogsResponse(BaseModel):
+    lines: list[str]
+    count: int

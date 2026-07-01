@@ -60,3 +60,22 @@ def test_dashboard_page(client):
     res = client.get("/")
     assert res.status_code == 200
     assert "PENTAGON5" in res.text
+    assert "Connect Broker" in res.text
+    assert "Normal Engine" in res.text
+
+
+def test_dashboard_pnl(client):
+    res = client.get("/api/v1/dashboard/pnl")
+    assert res.status_code == 200
+    data = res.json()
+    assert "total" in data
+    assert "engines" in data
+    assert len(data["engines"]) == 3
+
+
+def test_dashboard_logs(client):
+    res = client.get("/api/v1/dashboard/logs")
+    assert res.status_code == 200
+    data = res.json()
+    assert "lines" in data
+    assert "count" in data

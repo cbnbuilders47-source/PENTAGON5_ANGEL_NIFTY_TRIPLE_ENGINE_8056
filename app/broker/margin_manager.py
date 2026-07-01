@@ -29,7 +29,6 @@ class MarginManager:
             logger.exception("Margin fetch failed: %s", exc)
             return self._state.available_margin
 
-        self._state.set_available_margin(margin)
         logger.info("Available margin updated: %.2f", margin)
         return margin
 
@@ -40,8 +39,22 @@ class MarginManager:
             raise RuntimeError(f"rmsLimit failed: {message}")
 
         data = response.get("data", {})
+        margin = 0.0
         for key in ("availablecash", "net"):
             if key in data and data[key] is not None:
-                return float(data[key])
+                margin = float(data[key])
+                break
+        else:
+            raise RuntimeError("rmsLimit response missing availablecash/net")
 
-        raise RuntimeError("rmsLimit response missing availablecash/net")
+        realized = float(data.get("m2mrealized") or 0)
+        unrealized = float(data.get("m2munrealized") or 0)
+        self._state.set_day_pnl(realized, unrealized)
+        self._state.set_available_margin(margin)
+        logger.info(
+            "Available margin updated: %.2f | day P&L realized=%.2f unrealized=%.2f",
+            margin,
+            realized,
+            unrealized,
+        )
+        return margin

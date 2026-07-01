@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any
 
 from app.core.constants import DEFAULT_ALLOCATIONS, ENGINE_NORMAL, ENGINE_ULTRA, ENGINE_WICK
-from app.models.enums import BiasDirection, EngineStatus, SessionPhase
+from app.models.enums import BiasDirection, EngineStatus, MarketMode, SessionPhase
 
 
 @dataclass
@@ -42,6 +42,8 @@ class AppState:
     broker_connected: bool = False
     websocket_connected: bool = False
     available_margin: float = 0.0
+    today_realized_pnl: float = 0.0
+    today_unrealized_pnl: float = 0.0
 
     bias_direction: BiasDirection = BiasDirection.NEUTRAL
     bias_confidence_pct: float = 0.0
@@ -51,6 +53,11 @@ class AppState:
         default_factory=lambda: dict(DEFAULT_ALLOCATIONS)
     )
 
+    market_mode: str = "SLOW_TREND"
+    ai_recommendation: str = "WAIT"
+    ai_confidence: float = 0.0
+    preferred_engine: str = ENGINE_NORMAL
+    engine_decisions: dict[str, dict] = field(default_factory=dict)
     engines: dict[str, EngineState] = field(default_factory=dict)
     candles: dict[str, list[CandleSnapshot]] = field(default_factory=dict)
     last_updated: datetime = field(default_factory=datetime.now)
@@ -83,10 +90,57 @@ class AppState:
             self._recalculate_margins()
             self.last_updated = datetime.now()
 
+    def set_day_pnl(self, realized: float, unrealized: float) -> None:
+        with self._lock:
+            self.today_realized_pnl = realized
+            self.today_unrealized_pnl = unrealized
+            self.last_updated = datetime.now()
+
+    @property
+    def today_total_pnl(self) -> float:
+        with self._lock:
+            engine_pnl = sum(e.pnl for e in self.engines.values())
+            return self.today_realized_pnl + self.today_unrealized_pnl + engine_pnl
+
     def _recalculate_margins(self) -> None:
         for name, engine in self.engines.items():
             pct = self.allocations.get(name, 0.0)
             engine.allocated_margin = self.available_margin * (pct / 100.0)
+
+    def set_engine_status(self, name: str, status: EngineStatus) -> None:
+        with self._lock:
+            if name in self.engines:
+                self.engines[name].status = status
+            self.last_updated = datetime.now()
+
+    def update_engine_decision(self, name: str, snapshot) -> None:
+        with self._lock:
+            self.engine_decisions[name] = snapshot.to_dict()
+            self.last_updated = datetime.now()
+
+    def update_market_intelligence(
+        self,
+        direction: BiasDirection,
+        confidence: float,
+        locked: bool,
+        mode: MarketMode,
+        ai_recommendation: str,
+        ai_confidence: float,
+    ) -> None:
+        with self._lock:
+            self.bias_direction = direction
+            self.bias_confidence_pct = confidence
+            self.bias_locked = locked
+            self.market_mode = mode.value
+            self.ai_recommendation = ai_recommendation
+            self.ai_confidence = ai_confidence
+            from app.intelligence.time_rules import resolve_session_phase
+            self.session_phase = resolve_session_phase(datetime.now())
+            self.last_updated = datetime.now()
+
+    def set_preferred_engine(self, engine: str) -> None:
+        with self._lock:
+            self.preferred_engine = engine
 
     def to_dict(self) -> dict[str, Any]:
         with self._lock:
@@ -100,6 +154,11 @@ class AppState:
                     "confidence_pct": self.bias_confidence_pct,
                     "locked": self.bias_locked,
                 },
+                "market_mode": self.market_mode,
+                "ai_recommendation": self.ai_recommendation,
+                "ai_confidence": self.ai_confidence,
+                "preferred_engine": self.preferred_engine,
+                "engine_decisions": dict(self.engine_decisions),
                 "allocations": dict(self.allocations),
                 "engines": {
                     name: {

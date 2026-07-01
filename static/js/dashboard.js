@@ -1,5 +1,13 @@
 const API = "/api/v1";
 
+const POLL = {
+  state: 3000,
+  candles: 2000,
+  health: 10000,
+  logs: 4000,
+  pnl: 3000,
+};
+
 const sliders = {
   normal: document.getElementById("normal-slider"),
   wick: document.getElementById("wick-slider"),
@@ -12,19 +20,236 @@ const labels = {
   ultra: document.getElementById("ultra-val"),
 };
 
+const chartMap = {
+  NIFTY: { canvas: document.getElementById("chart-nifty"), ltp: document.getElementById("ltp-nifty") },
+  ATM_CE: { canvas: document.getElementById("chart-atm-ce"), ltp: document.getElementById("ltp-atm-ce") },
+  ATM_PE: { canvas: document.getElementById("chart-atm-pe"), ltp: document.getElementById("ltp-atm-pe") },
+};
+
+const btnConnect = document.getElementById("btn-connect");
+const btnDisconnect = document.getElementById("btn-disconnect");
+const toast = document.getElementById("toast");
+
+let brokerBusy = false;
+let logsCleared = false;
+
+// ── Utilities ──────────────────────────────────────────────
+
+function formatCurrency(n) {
+  const val = Number(n) || 0;
+  const prefix = val < 0 ? "-₹" : "₹";
+  return prefix + Math.abs(val).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function pnlClass(n) {
+  const val = Number(n) || 0;
+  if (val > 0) return "positive";
+  if (val < 0) return "negative";
+  return "neutral";
+}
+
+function showToast(msg, type = "info") {
+  toast.textContent = msg;
+  toast.className = `toast toast-${type}`;
+  setTimeout(() => toast.classList.add("hidden"), 4000);
+}
+
+async function apiFetch(path, options = {}) {
+  const res = await fetch(`${API}${path}`, options);
+  return res;
+}
+
+// ── Health & Ready ─────────────────────────────────────────
+
+async function refreshHealth() {
+  try {
+    const res = await apiFetch("/health");
+    if (!res.ok) return;
+    const data = await res.json();
+    const el = document.getElementById("health-status");
+    el.textContent = `HEALTH ${data.status.toUpperCase()}`;
+    el.className = "pill pill-ok";
+  } catch {
+    const el = document.getElementById("health-status");
+    el.textContent = "HEALTH ERR";
+    el.className = "pill pill-warn";
+  }
+}
+
+async function refreshReady() {
+  try {
+    const res = await apiFetch("/ready");
+    if (!res.ok) return;
+    const data = await res.json();
+    const el = document.getElementById("ready-status");
+    el.textContent = data.ready ? "READY OK" : "READY WAIT";
+    el.className = data.ready ? "pill pill-ok" : "pill pill-warn";
+  } catch {
+    const el = document.getElementById("ready-status");
+    el.textContent = "READY ERR";
+    el.className = "pill pill-warn";
+  }
+}
+
+// ── Broker ─────────────────────────────────────────────────
+
+function setBrokerUI(connected, wsConnected) {
+  const brokerPill = document.getElementById("broker-status");
+  const wsPill = document.getElementById("ws-status");
+
+  if (connected) {
+    brokerPill.textContent = "BROKER ONLINE";
+    brokerPill.className = "pill pill-ok";
+    btnConnect.disabled = true;
+    btnDisconnect.disabled = brokerBusy;
+  } else {
+    brokerPill.textContent = "BROKER OFFLINE";
+    brokerPill.className = "pill pill-warn";
+    btnConnect.disabled = brokerBusy;
+    btnDisconnect.disabled = true;
+  }
+
+  if (wsConnected) {
+    wsPill.textContent = "WS LIVE";
+    wsPill.className = "pill pill-ok";
+  } else {
+    wsPill.textContent = "WS OFFLINE";
+    wsPill.className = "pill pill-warn";
+  }
+}
+
+async function refreshBroker() {
+  try {
+    const res = await apiFetch("/broker/status");
+    if (!res.ok) return;
+    const data = await res.json();
+    setBrokerUI(data.connected, data.websocket_connected);
+
+    const tokensEl = document.getElementById("broker-tokens");
+    tokensEl.textContent = data.tokens_valid ? "Tokens: Valid" : "Tokens: Invalid";
+    tokensEl.className = data.tokens_valid ? "meta-tag tag-ok" : "meta-tag tag-warn";
+
+    const atmEl = document.getElementById("atm-strike");
+    atmEl.textContent = data.atm_strike ? `ATM: ${data.atm_strike}` : "ATM: —";
+  } catch { /* silent */ }
+}
+
+btnConnect.addEventListener("click", async () => {
+  if (brokerBusy) return;
+  brokerBusy = true;
+  btnConnect.textContent = "Connecting…";
+  btnConnect.disabled = true;
+
+  try {
+    const res = await apiFetch("/broker/connect", { method: "POST" });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Broker connected · Margin ${formatCurrency(data.available_margin)}`, "ok");
+      await Promise.all([refreshState(), refreshBroker(), refreshPnL(), refreshCandles()]);
+    } else {
+      showToast(data.error || "Broker connect failed", "error");
+    }
+  } catch (err) {
+    showToast("Broker connect error: " + err.message, "error");
+  } finally {
+    brokerBusy = false;
+    btnConnect.textContent = "Connect Broker";
+    await refreshBroker();
+  }
+});
+
+btnDisconnect.addEventListener("click", async () => {
+  if (brokerBusy) return;
+  brokerBusy = true;
+  btnDisconnect.textContent = "Disconnecting…";
+  btnDisconnect.disabled = true;
+
+  try {
+    const res = await apiFetch("/broker/disconnect", { method: "POST" });
+    if (res.ok) {
+      showToast("Broker disconnected", "info");
+      await Promise.all([refreshState(), refreshBroker(), refreshPnL()]);
+    }
+  } catch (err) {
+    showToast("Disconnect error: " + err.message, "error");
+  } finally {
+    brokerBusy = false;
+    btnDisconnect.textContent = "Disconnect";
+    await refreshBroker();
+  }
+});
+
+// ── Bias ───────────────────────────────────────────────────
+
+function applyBias(bias) {
+  const display = document.getElementById("bias-display");
+  document.getElementById("bias-direction").textContent = bias.direction;
+  document.getElementById("bias-confidence").textContent = bias.confidence_pct.toFixed(1) + "%";
+  display.className = "bias-display " + bias.direction.toLowerCase();
+  document.getElementById("bias-locked").classList.toggle("hidden", !bias.locked);
+}
+
+// ── Engines ────────────────────────────────────────────────
+
+function updateEnginePanel(engine) {
+  const name = engine.name;
+  const statusEl = document.querySelector(`.engine-status[data-engine="${name}"]`);
+  const allocEl = document.querySelector(`.engine-alloc[data-engine="${name}"]`);
+  const marginEl = document.querySelector(`.engine-margin[data-engine="${name}"]`);
+  const pnlEl = document.querySelector(`.engine-pnl[data-engine="${name}"]`);
+  const posEl = document.querySelector(`.engine-positions[data-engine="${name}"]`);
+  const panel = document.getElementById(`panel-${name}`);
+
+  if (!statusEl) return;
+
+  statusEl.textContent = engine.status;
+  statusEl.className = `engine-status status-${engine.status.toLowerCase()}`;
+  allocEl.textContent = engine.allocation_pct + "%";
+  marginEl.textContent = formatCurrency(engine.allocated_margin);
+
+  pnlEl.textContent = formatCurrency(engine.pnl);
+  pnlEl.className = `engine-pnl ${pnlClass(engine.pnl)}`;
+  posEl.textContent = engine.open_positions;
+
+  panel.classList.toggle("engine-active", engine.status === "ACTIVE");
+}
+
+function updateEngineIntelligence(name, intel) {
+  const block = document.querySelector(`.engine-intel[data-engine="${name}"]`);
+  if (!block || !intel) return;
+
+  const set = (cls, val) => {
+    const el = block.querySelector(`.${cls}`);
+    if (el) el.textContent = val ?? "—";
+  };
+
+  set("engine-phase", intel.phase);
+  set("engine-decision", intel.decision);
+  set("engine-confidence", intel.confidence != null ? intel.confidence.toFixed(1) + "%" : "—");
+  set("engine-opportunity", intel.opportunity_score != null ? intel.opportunity_score.toFixed(1) : "—");
+  set("engine-entry-quality", intel.entry_quality != null ? intel.entry_quality.toFixed(1) : "—");
+  set("engine-momentum", intel.momentum != null ? intel.momentum.toFixed(1) : "—");
+  set("engine-liquidity", intel.liquidity != null ? intel.liquidity.toFixed(1) : "—");
+  set("engine-health", intel.market_health != null ? intel.market_health.toFixed(1) : "—");
+  set("engine-target", intel.expected_target != null ? intel.expected_target.toFixed(2) : "—");
+  set("engine-sl", intel.expected_sl != null ? intel.expected_sl.toFixed(2) : "—");
+
+  const reasons = block.querySelector(".engine-reasons");
+  if (reasons) {
+    reasons.innerHTML = (intel.reasons || []).map((r) => `<li>${r}</li>`).join("");
+  }
+
+  const panel = document.getElementById(`panel-${name}`);
+  if (panel && intel.decision) {
+    panel.classList.toggle("engine-signal", intel.decision.startsWith("WOULD_"));
+  }
+}
+
+// ── Allocation ─────────────────────────────────────────────
+
 const allocTotal = document.getElementById("alloc-total");
 const allocError = document.getElementById("alloc-error");
 const saveBtn = document.getElementById("save-alloc");
-
-const chartMap = {
-  NIFTY: document.getElementById("chart-nifty"),
-  ATM_CE: document.getElementById("chart-atm-ce"),
-  ATM_PE: document.getElementById("chart-atm-pe"),
-};
-
-function formatCurrency(n) {
-  return "₹" + Number(n).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
 
 function updateAllocationUI() {
   const n = Number(sliders.normal.value);
@@ -50,129 +275,207 @@ saveBtn.addEventListener("click", async () => {
     wick: Number(sliders.wick.value),
     ultra: Number(sliders.ultra.value),
   };
-  const res = await fetch(`${API}/engines/allocations`, {
+  const res = await apiFetch("/engines/allocations", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   if (res.ok) {
     saveBtn.textContent = "Saved ✓";
+    showToast("Allocation saved", "ok");
     setTimeout(() => { saveBtn.textContent = "Save Allocation"; }, 2000);
+    refreshState();
+  } else {
+    showToast("Allocation save failed", "error");
   }
 });
 
-function applyBias(bias) {
-  const display = document.getElementById("bias-display");
-  const direction = document.getElementById("bias-direction");
-  const confidence = document.getElementById("bias-confidence");
-  const locked = document.getElementById("bias-locked");
+// ── P&L ────────────────────────────────────────────────────
 
-  direction.textContent = bias.direction;
-  confidence.textContent = bias.confidence_pct.toFixed(1) + "%";
+async function refreshPnL() {
+  try {
+    const res = await apiFetch("/dashboard/pnl");
+    if (!res.ok) return;
+    const data = await res.json();
 
-  display.className = "bias-display " + bias.direction.toLowerCase();
-  locked.classList.toggle("hidden", !bias.locked);
+    const totalEl = document.getElementById("pnl-total");
+    totalEl.textContent = formatCurrency(data.total);
+    totalEl.className = `pnl-total ${pnlClass(data.total)}`;
+
+    document.getElementById("pnl-realized").textContent = formatCurrency(data.realized);
+    document.getElementById("pnl-unrealized").textContent = formatCurrency(data.unrealized);
+
+    const container = document.getElementById("pnl-engines");
+    container.innerHTML = data.engines.map((e) => `
+      <div class="pnl-engine-row">
+        <span class="pnl-engine-name">${e.name}</span>
+        <span class="${pnlClass(e.pnl)}">${formatCurrency(e.pnl)}</span>
+        <span class="pnl-engine-pos">${e.open_positions} pos</span>
+      </div>
+    `).join("");
+
+    data.engines.forEach(updateEnginePanel);
+  } catch { /* silent */ }
 }
 
-function renderEngines(engines) {
-  const list = document.getElementById("engines-list");
-  list.innerHTML = engines.map((e) => `
-    <div class="engine-item">
-      <span class="name">${e.name} Engine</span>
-      <span>
-        <span class="status">${e.status}</span>
-        · ${e.allocation_pct}% · ${formatCurrency(e.allocated_margin)}
-      </span>
-    </div>
-  `).join("");
-}
+// ── Candles ────────────────────────────────────────────────
 
-function drawCandles(canvas, candles) {
+function setupCanvas(canvas) {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.max(rect.width - 16, 280);
+  const h = 180;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width = w + "px";
+  canvas.style.height = h + "px";
   const ctx = canvas.getContext("2d");
-  const w = canvas.width;
-  const h = canvas.height;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, w, h };
+}
+
+function drawCandles(canvas, candles, ltpEl) {
+  const { ctx, w, h } = setupCanvas(canvas);
   ctx.clearRect(0, 0, w, h);
 
   if (!candles.length) {
-    ctx.fillStyle = "#444";
+    ctx.fillStyle = "#555";
     ctx.font = "12px sans-serif";
     ctx.textAlign = "center";
     ctx.fillText("Awaiting live ticks", w / 2, h / 2);
+    if (ltpEl) ltpEl.textContent = "—";
     return;
   }
+
+  const last = candles[candles.length - 1];
+  if (ltpEl) ltpEl.textContent = last.close.toFixed(2);
 
   const prices = candles.flatMap((c) => [c.high, c.low]);
   const min = Math.min(...prices);
   const max = Math.max(...prices);
-  const range = max - min || 1;
-  const barW = Math.max(2, (w - 20) / candles.length - 2);
+  const pad = (max - min) * 0.05 || 1;
+  const lo = min - pad;
+  const hi = max + pad;
+  const range = hi - lo;
+  const barW = Math.max(3, (w - 30) / candles.length - 2);
 
   candles.forEach((c, i) => {
-    const x = 10 + i * (barW + 2);
-    const yHigh = 10 + ((max - c.high) / range) * (h - 20);
-    const yLow = 10 + ((max - c.low) / range) * (h - 20);
-    const yOpen = 10 + ((max - c.open) / range) * (h - 20);
-    const yClose = 10 + ((max - c.close) / range) * (h - 20);
+    const x = 15 + i * (barW + 2);
+    const yHigh = 12 + ((hi - c.high) / range) * (h - 28);
+    const yLow = 12 + ((hi - c.low) / range) * (h - 28);
+    const yOpen = 12 + ((hi - c.open) / range) * (h - 28);
+    const yClose = 12 + ((hi - c.close) / range) * (h - 28);
 
     const bullish = c.close >= c.open;
-    ctx.strokeStyle = bullish ? "#00ff9d" : "#ff4466";
-    ctx.fillStyle = bullish ? "#00ff9d" : "#ff4466";
+    const color = bullish ? "#00ff9d" : "#ff4466";
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
 
     ctx.beginPath();
     ctx.moveTo(x + barW / 2, yHigh);
     ctx.lineTo(x + barW / 2, yLow);
+    ctx.lineWidth = 1;
     ctx.stroke();
 
     const top = Math.min(yOpen, yClose);
-    const bodyH = Math.max(1, Math.abs(yClose - yOpen));
+    const bodyH = Math.max(1.5, Math.abs(yClose - yOpen));
     ctx.fillRect(x, top, barW, bodyH);
   });
+
+  ctx.fillStyle = "#666";
+  ctx.font = "10px sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText(max.toFixed(2), 4, 14);
+  ctx.fillText(min.toFixed(2), 4, h - 6);
 }
 
 async function fetchCandles(symbol) {
-  const res = await fetch(`${API}/market/candles/${symbol}`);
+  const res = await apiFetch(`/market/candles/${symbol}`);
   if (!res.ok) return [];
   const data = await res.json();
   return data.candles || [];
 }
 
 async function refreshCandles() {
-  for (const [symbol, canvas] of Object.entries(chartMap)) {
+  for (const [symbol, { canvas, ltp }] of Object.entries(chartMap)) {
     const candles = await fetchCandles(symbol);
-    drawCandles(canvas, candles);
+    drawCandles(canvas, candles, ltp);
   }
 }
+
+// ── Logs ───────────────────────────────────────────────────
+
+async function refreshLogs() {
+  if (logsCleared) return;
+  try {
+    const res = await apiFetch("/dashboard/logs?lines=100");
+    if (!res.ok) return;
+    const data = await res.json();
+    const output = document.getElementById("logs-output");
+    output.textContent = data.lines.length ? data.lines.join("\n") : "No log entries yet.";
+    output.scrollTop = output.scrollHeight;
+  } catch { /* silent */ }
+}
+
+document.getElementById("btn-clear-logs-view").addEventListener("click", () => {
+  logsCleared = true;
+  document.getElementById("logs-output").textContent = "Log view cleared. Will resume on next poll cycle.";
+  setTimeout(() => { logsCleared = false; }, POLL.logs);
+});
+
+// ── State ──────────────────────────────────────────────────
 
 async function refreshState() {
-  const res = await fetch(`${API}/dashboard/state`);
-  if (!res.ok) return;
-  const state = await res.json();
+  try {
+    const res = await apiFetch("/dashboard/state");
+    if (!res.ok) return;
+    const state = await res.json();
 
-  document.getElementById("session-phase").textContent = state.session_phase;
-  const brokerPill = document.getElementById("broker-status");
-  if (state.broker_connected) {
-    brokerPill.textContent = "BROKER ONLINE";
-    brokerPill.className = "pill pill-ok";
-  } else {
-    brokerPill.textContent = "BROKER OFFLINE";
-    brokerPill.className = "pill pill-warn";
-  }
+    document.getElementById("session-phase").textContent = state.session_phase;
+    setBrokerUI(state.broker_connected, state.websocket_connected);
+    document.getElementById("available-margin").textContent = formatCurrency(state.available_margin);
+    applyBias(state.bias);
 
-  document.getElementById("available-margin").textContent = formatCurrency(state.available_margin);
-  applyBias(state.bias);
-  renderEngines(state.engines);
+    document.getElementById("market-mode").textContent = "Mode: " + (state.market_mode || "—");
+    document.getElementById("ai-recommendation").textContent = "AI: " + (state.ai_recommendation || "—");
+    document.getElementById("preferred-engine").textContent =
+      "Preferred: " + (state.preferred_engine || "—").toUpperCase();
 
-  sliders.normal.value = state.allocations.normal;
-  sliders.wick.value = state.allocations.wick;
-  sliders.ultra.value = state.allocations.ultra;
-  updateAllocationUI();
+    state.engines.forEach(updateEnginePanel);
+    if (state.engine_decisions) {
+      Object.entries(state.engine_decisions).forEach(([name, intel]) => updateEngineIntelligence(name, intel));
+    }
 
-  document.getElementById("last-updated").textContent =
-    "Last updated: " + new Date(state.last_updated).toLocaleTimeString();
+    sliders.normal.value = state.allocations.normal;
+    sliders.wick.value = state.allocations.wick;
+    sliders.ultra.value = state.allocations.ultra;
+    updateAllocationUI();
+
+    document.getElementById("last-updated").textContent =
+      "Last updated: " + new Date(state.last_updated).toLocaleTimeString();
+  } catch { /* silent */ }
 }
 
-updateAllocationUI();
-refreshState();
-refreshCandles();
-setInterval(refreshState, 3000);
-setInterval(refreshCandles, 5000);
+// ── Init & polling ─────────────────────────────────────────
+
+function init() {
+  updateAllocationUI();
+  refreshHealth();
+  refreshReady();
+  refreshBroker();
+  refreshState();
+  refreshPnL();
+  refreshCandles();
+  refreshLogs();
+
+  setInterval(refreshHealth, POLL.health);
+  setInterval(refreshReady, POLL.health);
+  setInterval(refreshState, POLL.state);
+  setInterval(refreshBroker, POLL.state);
+  setInterval(refreshPnL, POLL.pnl);
+  setInterval(refreshCandles, POLL.candles);
+  setInterval(refreshLogs, POLL.logs);
+}
+
+window.addEventListener("resize", () => refreshCandles());
+init();
