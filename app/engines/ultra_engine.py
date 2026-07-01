@@ -15,22 +15,20 @@ class UltraEngine:
 
     def __init__(self) -> None:
         self._sm = EngineStateMachine()
-        self._virtual_position: bool = False
         self.last_snapshot: EngineDecisionSnapshot | None = None
 
     @property
     def phase(self) -> EnginePhase:
         return self._sm.phase
 
-    def evaluate(self, ctx: TradingContext, allocated_margin: float) -> EngineDecisionSnapshot:
+    def evaluate(self, ctx: TradingContext, allocated_margin: float, has_live_position: bool = False) -> EngineDecisionSnapshot:
         if not ctx.broker_connected:
             return self._finalize(UltraDecision.WAIT.value, ["Broker not connected"], ctx, None)
 
-        if force_exit_required(ctx.session_phase) and self._virtual_position:
-            self._virtual_position = False
+        if force_exit_required(ctx.session_phase) and has_live_position:
             return self._finalize(UltraDecision.WOULD_EXIT.value, ["Force exit window"], ctx, None)
 
-        if not new_entries_allowed(ctx.session_phase) and not self._virtual_position:
+        if not new_entries_allowed(ctx.session_phase) and not has_live_position:
             return self._finalize(UltraDecision.WAIT.value, ["Outside trading window"], ctx, None)
 
         if allocated_margin <= 0:
@@ -42,14 +40,8 @@ class UltraEngine:
 
         signal = analyze_ultra(ctx.nifty_candles, premium)
 
-        if self._virtual_position:
-            self._virtual_position = False
-            return self._finalize(
-                UltraDecision.WOULD_EXIT.value,
-                signal.reasons + ["Smart profit lock (simulated)"],
-                ctx,
-                signal,
-            )
+        if has_live_position:
+            return self._finalize(UltraDecision.WAIT.value, signal.reasons + ["Holding position — monitoring exit"], ctx, signal)
 
         if signal.opportunity_rank < 65:
             return self._finalize(
@@ -63,7 +55,6 @@ class UltraEngine:
             return self._finalize(UltraDecision.WAIT.value, signal.reasons + ["Reversal risk"], ctx, signal)
 
         if signal.momentum_strength >= 65 and (signal.breakout or signal.trend_continuation):
-            self._virtual_position = True
             self._sm.advance_for_decision(UltraDecision.WOULD_BUY.value)
             return self._finalize(UltraDecision.WOULD_BUY.value, signal.reasons, ctx, signal)
 
@@ -101,4 +92,3 @@ class UltraEngine:
 
     def reset(self) -> None:
         self._sm.reset()
-        self._virtual_position = False

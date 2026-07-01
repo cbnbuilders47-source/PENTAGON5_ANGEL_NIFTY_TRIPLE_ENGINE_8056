@@ -15,26 +15,24 @@ class WickEngine:
 
     def __init__(self) -> None:
         self._sm = EngineStateMachine()
-        self._virtual_position: bool = False
         self.last_snapshot: EngineDecisionSnapshot | None = None
 
     @property
     def phase(self) -> EnginePhase:
         return self._sm.phase
 
-    def evaluate(self, ctx: TradingContext, allocated_margin: float) -> EngineDecisionSnapshot:
+    def evaluate(self, ctx: TradingContext, allocated_margin: float, has_live_position: bool = False) -> EngineDecisionSnapshot:
         reasons: list[str] = []
 
         if not ctx.broker_connected:
             return self._finalize(WickDecision.WAIT.value, ["Broker not connected"], ctx, 0.0, 0.0, 0.0)
 
-        if force_exit_required(ctx.session_phase) and self._virtual_position:
+        if force_exit_required(ctx.session_phase) and has_live_position:
             snap = self._finalize(WickDecision.WOULD_EXIT.value, ["Force exit window"], ctx, 0.0, 0.0, 0.0)
-            self._virtual_position = False
             self._sm.advance_for_decision(WickDecision.WOULD_EXIT.value, has_position=True)
             return snap
 
-        if not new_entries_allowed(ctx.session_phase) and not self._virtual_position:
+        if not new_entries_allowed(ctx.session_phase) and not has_live_position:
             return self._finalize(WickDecision.WAIT.value, ["Outside trading window"], ctx, 0.0, 0.0, 0.0)
 
         if allocated_margin <= 0:
@@ -47,10 +45,8 @@ class WickEngine:
         opportunity = 0.0
         entry_quality = 0.0
 
-        if self._virtual_position:
-            snap = self._finalize(WickDecision.WOULD_EXIT.value, ["Premium slowdown exit"], ctx, confidence, opportunity, entry_quality)
-            self._virtual_position = False
-            return snap
+        if has_live_position:
+            return self._finalize(WickDecision.WAIT.value, ["Holding position — monitoring exit"], ctx, confidence, opportunity, entry_quality)
 
         active = ce_signal if ce_signal.detected else pe_signal if pe_signal.detected else None
         if not active:
@@ -75,7 +71,6 @@ class WickEngine:
             return self._finalize(WickDecision.READY.value, reasons + ["Waiting confirmation"], ctx, confidence, opportunity, entry_quality)
 
         decision = WickDecision.WOULD_BUY.value
-        self._virtual_position = True
         self._sm.advance_for_decision(decision, has_position=False)
         return self._finalize(decision, reasons, ctx, confidence, opportunity, entry_quality)
 
@@ -111,4 +106,3 @@ class WickEngine:
 
     def reset(self) -> None:
         self._sm.reset()
-        self._virtual_position = False

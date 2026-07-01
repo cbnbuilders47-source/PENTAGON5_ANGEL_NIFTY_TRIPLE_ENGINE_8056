@@ -28,3 +28,9 @@ def setup_logging() -> None:
 
 def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
+
+
+def mask_sensitive(value: str, visible: int = 4) -> str:
+    if not value or len(value) <= visible:
+        return "****"
+    return value[:visible] + "****"

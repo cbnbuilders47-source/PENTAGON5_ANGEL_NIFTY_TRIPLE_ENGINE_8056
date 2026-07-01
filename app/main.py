@@ -12,6 +12,8 @@ from fastapi.templating import Jinja2Templates
 from app.api.router import api_router
 from app.broker.angel_manager import AngelManager
 from app.broker.margin_manager import MarginManager
+from app.broker.order_manager import OrderManager
+from app.broker.position_manager import PositionManager
 from app.broker.rate_limit import RateLimitTracker
 from app.broker.readiness import BrokerReadinessGate
 from app.broker.session_service import BrokerSessionService
@@ -19,7 +21,12 @@ from app.broker.token_manager import TokenManager
 from app.broker.websocket_manager import WebSocketManager
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
+from app.core.shutdown_manager import ShutdownManager
+from app.core.startup_validator import validate_startup
 from app.core.state import get_app_state
+from app.execution.execution_controller import ExecutionController
+from app.execution.recovery import ExecutionRecovery
+from app.risk.exit_monitor import ExitMonitor
 from app.engines.adaptive_controller import AdaptiveController
 from app.engines.runtime import intelligence_loop
 from app.market.atm_manager import ATMManager
@@ -44,6 +51,12 @@ async def lifespan(app: FastAPI):
     settings.reports_dir.mkdir(parents=True, exist_ok=True)
 
     init_db()
+
+    validation = validate_startup()
+    if not validation.valid:
+        for check in validation.checks:
+            if not check.passed:
+                logger.warning("Startup check failed: %s — %s", check.name, check.message)
 
     app_state = get_app_state()
     token_manager = TokenManager()
@@ -74,6 +87,19 @@ async def lifespan(app: FastAPI):
         readiness_gate=readiness_gate,
     )
     force_exit_manager = ForceExitManager(app_state)
+    order_manager = OrderManager(angel_manager, rate_limiter)
+    position_manager = PositionManager(angel_manager, rate_limiter)
+    execution_controller = ExecutionController(
+        state=app_state,
+        risk_manager=risk_manager,
+        locks=trading_locks,
+        scheduler=session_scheduler,
+        readiness_gate=readiness_gate,
+        order_manager=order_manager,
+        position_manager=position_manager,
+    )
+    execution_recovery = ExecutionRecovery(app_state, order_manager, position_manager)
+    exit_monitor = ExitMonitor(app_state, execution_controller, session_scheduler)
 
     app.state.settings = settings
     app.state.app_state = app_state
@@ -91,6 +117,12 @@ async def lifespan(app: FastAPI):
     app.state.risk_manager = risk_manager
     app.state.trading_locks = trading_locks
     app.state.force_exit_manager = force_exit_manager
+    app.state.order_manager = order_manager
+    app.state.position_manager = position_manager
+    app.state.execution_controller = execution_controller
+    app.state.execution_recovery = execution_recovery
+    app.state.exit_monitor = exit_monitor
+    app.state.shutdown_manager = ShutdownManager(app)
     app.state.broker_session = BrokerSessionService(
         settings=settings,
         state=app_state,

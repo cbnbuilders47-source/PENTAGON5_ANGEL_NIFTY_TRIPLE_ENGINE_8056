@@ -109,6 +109,8 @@ class BrokerSessionService:
 
     def _handle_tick(self, symbol: str, price: float, volume: int = 0) -> None:
         self._candles.on_tick(symbol, price, volume)
+        if symbol == "NIFTY":
+            self._state.update_nifty_quote(price)
 
         if symbol != "NIFTY":
             return

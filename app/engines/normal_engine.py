@@ -23,14 +23,13 @@ class NormalEngine:
     def __init__(self) -> None:
         self._sm = EngineStateMachine()
         self._last_signal_hash: str | None = None
-        self._virtual_position: str | None = None
         self.last_snapshot: EngineDecisionSnapshot | None = None
 
     @property
     def phase(self) -> EnginePhase:
         return self._sm.phase
 
-    def evaluate(self, ctx: TradingContext, allocated_margin: float) -> EngineDecisionSnapshot:
+    def evaluate(self, ctx: TradingContext, allocated_margin: float, has_live_position: bool = False) -> EngineDecisionSnapshot:
         reasons: list[str] = []
         metrics = AnalysisMetrics()
 
@@ -38,12 +37,12 @@ class NormalEngine:
             return self._finalize(NormalDecision.BLOCKED.value, reasons + ["Broker not connected"], ctx, metrics)
 
         if force_exit_required(ctx.session_phase):
-            if self._virtual_position:
+            if has_live_position:
                 reasons.append("Force exit window active")
                 return self._finalize(NormalDecision.WOULD_EXIT.value, reasons, ctx, metrics)
             return self._finalize(NormalDecision.BLOCKED.value, reasons + ["Session force exit"], ctx, metrics)
 
-        if not new_entries_allowed(ctx.session_phase) and not self._virtual_position:
+        if not new_entries_allowed(ctx.session_phase) and not has_live_position:
             return self._finalize(NormalDecision.WAIT.value, reasons + ["Outside trading window"], ctx, metrics)
 
         if allocated_margin <= 0:
@@ -72,12 +71,9 @@ class NormalEngine:
         if liquidity_ok(ctx.atm_ce_candles) or liquidity_ok(ctx.atm_pe_candles):
             reasons.append("Liquidity good")
 
-        if self._virtual_position:
-            reasons.append(f"Virtual position {self._virtual_position}")
-            snap = self._finalize(NormalDecision.WOULD_EXIT.value, reasons + ["Target reached (simulated)"], ctx, metrics)
-            self._virtual_position = None
-            self._sm.advance_for_decision(NormalDecision.WOULD_EXIT.value, has_position=True)
-            return snap
+        if has_live_position:
+            reasons.append("Live position active — monitoring exit")
+            return self._finalize(NormalDecision.WAIT.value, reasons, ctx, metrics)
 
         if ctx.bias_confidence < 55:
             return self._finalize(NormalDecision.WAIT.value, reasons + ["Waiting confirmation"], ctx, metrics)
@@ -100,9 +96,7 @@ class NormalEngine:
             return self._finalize(NormalDecision.WAIT.value, reasons + ["Duplicate signal prevented"], ctx, metrics)
 
         snap = self._finalize(decision, reasons, ctx, metrics)
-        if decision in (NormalDecision.WOULD_BUY_CE.value, NormalDecision.WOULD_BUY_PE.value):
-            self._virtual_position = decision
-        self._sm.advance_for_decision(decision, has_position=bool(self._virtual_position))
+        self._sm.advance_for_decision(decision, has_position=has_live_position)
         return snap
 
     def _duplicate_blocked(self, decision: str, reasons: list[str]) -> bool:
@@ -149,5 +143,4 @@ class NormalEngine:
 
     def reset(self) -> None:
         self._sm.reset()
-        self._virtual_position = None
         self._last_signal_hash = None

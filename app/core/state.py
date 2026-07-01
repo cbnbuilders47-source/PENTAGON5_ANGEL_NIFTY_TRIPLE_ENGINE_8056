@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any
 
 from app.core.constants import DEFAULT_ALLOCATIONS, ENGINE_NORMAL, ENGINE_ULTRA, ENGINE_WICK
-from app.models.enums import BiasDirection, EngineStatus, MarketMode, SessionPhase
+from app.models.enums import BiasDirection, EngineOperatingMode, EngineStatus, MarketMode, SessionPhase
 
 
 @dataclass
@@ -64,6 +64,20 @@ class AppState:
     new_entries_allowed: bool = False
     force_exit_active: bool = False
     kill_switch_active: bool = False
+    engine_modes: dict[str, str] = field(default_factory=lambda: {
+        ENGINE_NORMAL: EngineOperatingMode.MONITOR.value,
+        ENGINE_WICK: EngineOperatingMode.MONITOR.value,
+        ENGINE_ULTRA: EngineOperatingMode.MONITOR.value,
+    })
+    live_positions: dict[str, dict] = field(default_factory=dict)
+    pending_approvals: list[dict] = field(default_factory=list)
+    trade_history: list[dict] = field(default_factory=list)
+    execution_results: list[dict] = field(default_factory=list)
+    recovery_summary: dict = field(default_factory=dict)
+    nifty_ltp: float = 0.0
+    nifty_change_pts: float = 0.0
+    nifty_change_pct: float = 0.0
+    used_margin: float = 0.0
     engines: dict[str, EngineState] = field(default_factory=dict)
     candles: dict[str, list[CandleSnapshot]] = field(default_factory=dict)
     last_updated: datetime = field(default_factory=datetime.now)
@@ -146,6 +160,77 @@ class AppState:
         with self._lock:
             self.preferred_engine = engine
 
+    def get_engine_mode(self, engine: str) -> EngineOperatingMode:
+        with self._lock:
+            val = self.engine_modes.get(engine, EngineOperatingMode.MONITOR.value)
+            return EngineOperatingMode(val)
+
+    def set_engine_mode(self, engine: str, mode: EngineOperatingMode) -> None:
+        with self._lock:
+            self.engine_modes[engine] = mode.value
+            self.last_updated = datetime.now()
+
+    def set_live_position(self, engine: str, position: dict) -> None:
+        with self._lock:
+            self.live_positions[engine] = position
+            self.last_updated = datetime.now()
+
+    def clear_live_position(self, engine: str) -> None:
+        with self._lock:
+            self.live_positions.pop(engine, None)
+            self.last_updated = datetime.now()
+
+    def set_pending_approval(self, approval: dict) -> None:
+        with self._lock:
+            self.pending_approvals = [a for a in self.pending_approvals if a.get("approval_id") != approval.get("approval_id")]
+            self.pending_approvals.append(approval)
+            self.last_updated = datetime.now()
+
+    def clear_pending_approval(self, approval_id: str) -> None:
+        with self._lock:
+            self.pending_approvals = [a for a in self.pending_approvals if a.get("approval_id") != approval_id]
+            self.last_updated = datetime.now()
+
+    def set_execution_result(self, result: dict) -> None:
+        with self._lock:
+            self.execution_results.append(result)
+            if len(self.execution_results) > 200:
+                self.execution_results = self.execution_results[-200:]
+            self.last_updated = datetime.now()
+
+    def record_trade(self, engine: str, pos: dict, exit_price: float, exit_order_id: str, pnl: float, reason: str) -> None:
+        with self._lock:
+            self.trade_history.append({
+                "engine": engine,
+                "entry_order_id": pos.get("entry_order_id"),
+                "exit_order_id": exit_order_id,
+                "entry_price": pos.get("entry_price"),
+                "exit_price": exit_price,
+                "quantity": pos.get("quantity"),
+                "lots": pos.get("lots"),
+                "strike": pos.get("strike"),
+                "expiry": pos.get("expiry"),
+                "option_side": pos.get("option_side"),
+                "pnl": pnl,
+                "exit_reason": reason,
+                "closed_at": datetime.now().isoformat(),
+            })
+            self.today_realized_pnl += pnl
+            self.last_updated = datetime.now()
+
+    def set_recovery_summary(self, summary: dict) -> None:
+        with self._lock:
+            self.recovery_summary = summary
+            self.last_updated = datetime.now()
+
+    def update_nifty_quote(self, ltp: float) -> None:
+        with self._lock:
+            if self.nifty_ltp > 0:
+                self.nifty_change_pts = ltp - self.nifty_ltp
+                self.nifty_change_pct = (self.nifty_change_pts / self.nifty_ltp) * 100
+            self.nifty_ltp = ltp
+            self.last_updated = datetime.now()
+
     def apply_scheduler_status(self, status) -> None:
         with self._lock:
             self.session_phase = status.current_phase
@@ -195,6 +280,14 @@ class AppState:
                 "new_entries_allowed": self.new_entries_allowed,
                 "force_exit_active": self.force_exit_active,
                 "kill_switch_active": self.kill_switch_active,
+                "engine_modes": dict(self.engine_modes),
+                "live_positions": dict(self.live_positions),
+                "pending_approvals": list(self.pending_approvals),
+                "trade_history": self.trade_history[-50:],
+                "nifty_ltp": self.nifty_ltp,
+                "nifty_change_pts": self.nifty_change_pts,
+                "nifty_change_pct": self.nifty_change_pct,
+                "used_margin": self.used_margin,
                 "allocations": dict(self.allocations),
                 "engines": {
                     name: {

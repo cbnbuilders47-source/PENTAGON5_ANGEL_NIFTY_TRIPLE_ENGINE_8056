@@ -67,7 +67,8 @@ class AdaptiveController:
 
         for name, engine in engines.items():
             alloc_margin = self._state.engines.get(name).allocated_margin if name in self._state.engines else 0.0
-            snap = engine.evaluate(ctx, alloc_margin)
+            has_pos = name in self._state.live_positions
+            snap = engine.evaluate(ctx, alloc_margin, has_live_position=has_pos)
             self.last_decisions[name] = snap
             self._state.update_engine_decision(name, snap)
             status = EngineStatus.ACTIVE if snap.decision.startswith("WOULD_") else EngineStatus.ANALYZING
