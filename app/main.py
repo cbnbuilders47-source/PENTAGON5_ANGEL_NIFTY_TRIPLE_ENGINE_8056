@@ -11,12 +11,14 @@ from fastapi.templating import Jinja2Templates
 from app.api.router import api_router
 from app.broker.angel_manager import AngelManager
 from app.broker.margin_manager import MarginManager
+from app.broker.session_service import BrokerSessionService
 from app.broker.token_manager import TokenManager
 from app.broker.websocket_manager import WebSocketManager
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
 from app.core.state import get_app_state
 from app.engines.adaptive_controller import AdaptiveController
+from app.market.atm_manager import ATMManager
 from app.market.candle_builder import CandleBuilder
 from app.market.instrument_master import InstrumentMaster
 from app.risk.locks import TradingLocks
@@ -36,20 +38,42 @@ async def lifespan(app: FastAPI):
 
     init_db()
 
+    app_state = get_app_state()
+    token_manager = TokenManager()
+    angel_manager = AngelManager(settings, token_manager)
+    websocket_manager = WebSocketManager()
+    instrument_master = InstrumentMaster(settings)
+    atm_manager = ATMManager(instrument_master)
+    candle_builder = CandleBuilder()
+
     app.state.settings = settings
-    app.state.app_state = get_app_state()
-    app.state.candle_builder = CandleBuilder()
-    app.state.angel_manager = AngelManager(settings)
-    app.state.token_manager = TokenManager()
-    app.state.websocket_manager = WebSocketManager()
-    app.state.margin_manager = MarginManager(app.state.app_state)
-    app.state.instrument_master = InstrumentMaster()
-    app.state.adaptive_controller = AdaptiveController(app.state.app_state)
-    app.state.risk_manager = RiskManager(app.state.app_state)
+    app.state.app_state = app_state
+    app.state.candle_builder = candle_builder
+    app.state.angel_manager = angel_manager
+    app.state.token_manager = token_manager
+    app.state.websocket_manager = websocket_manager
+    app.state.margin_manager = MarginManager(app_state, angel_manager)
+    app.state.instrument_master = instrument_master
+    app.state.atm_manager = atm_manager
+    app.state.adaptive_controller = AdaptiveController(app_state)
+    app.state.risk_manager = RiskManager(app_state)
     app.state.trading_locks = TradingLocks()
+    app.state.broker_session = BrokerSessionService(
+        settings=settings,
+        state=app_state,
+        angel_manager=angel_manager,
+        token_manager=token_manager,
+        margin_manager=app.state.margin_manager,
+        websocket_manager=websocket_manager,
+        instrument_master=instrument_master,
+        atm_manager=atm_manager,
+        candle_builder=candle_builder,
+    )
 
     logger.info("%s v%s starting on port %s", settings.app_name, settings.app_version, settings.port)
     yield
+
+    await app.state.broker_session.disconnect()
     logger.info("Application shutdown complete")
 
 

@@ -24,10 +24,15 @@ async def ready(request: Request) -> ReadinessResponse:
     settings = get_settings()
     db_ok = check_database()
     broker_configured = settings.angel_configured
+    state = request.app.state.app_state
 
     details = {
         "database": "ok" if db_ok else "unavailable",
-        "broker": "configured" if broker_configured else "not_configured",
+        "broker": "connected" if state.broker_connected else (
+            "configured" if broker_configured else "not_configured"
+        ),
+        "websocket": "connected" if state.websocket_connected else "disconnected",
+        "tokens": "valid" if request.app.state.token_manager.is_valid else "invalid",
         "trading_mode": settings.trading_mode,
     }
 

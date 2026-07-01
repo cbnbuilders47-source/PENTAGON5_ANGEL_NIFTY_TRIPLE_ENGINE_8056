@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -81,6 +82,7 @@ class CandleBuilder:
 
     def __init__(self) -> None:
         self._builders: dict[str, _CandleBuilder] = {}
+        self._lock = threading.Lock()
 
     def get_or_create(self, symbol: str) -> _CandleBuilder:
         if symbol not in self._builders:
@@ -89,14 +91,16 @@ class CandleBuilder:
 
     def on_tick(self, symbol: str, price: float, volume: int = 0, ts: datetime | None = None) -> CandleBar | None:
         ts = ts or datetime.now()
-        return self.get_or_create(symbol).on_tick(price, volume, ts)
+        with self._lock:
+            return self.get_or_create(symbol).on_tick(price, volume, ts)
 
     def get_candles(self, symbol: str, limit: int = 60) -> list[CandleBar]:
-        builder = self._builders.get(symbol)
-        if not builder:
-            return []
-        candles = list(builder.history)
-        current = builder.current_bar()
-        if current:
-            candles.append(current)
-        return candles[-limit:]
+        with self._lock:
+            builder = self._builders.get(symbol)
+            if not builder:
+                return []
+            candles = list(builder.history)
+            current = builder.current_bar()
+            if current:
+                candles.append(current)
+            return candles[-limit:]

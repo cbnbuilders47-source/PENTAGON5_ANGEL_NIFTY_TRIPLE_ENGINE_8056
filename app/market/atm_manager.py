@@ -21,6 +21,17 @@ class ATMManager:
     def atm_strike(self) -> int | None:
         return self._atm_strike
 
-    def update(self, nifty_ltp: float) -> int:
+    @property
+    def ce_token(self) -> str | None:
+        return self._ce_token
+
+    @property
+    def pe_token(self) -> str | None:
+        return self._pe_token
+
+    def update(self, nifty_ltp: float, ce_token: str, pe_token: str) -> int:
         self._atm_strike = self._master.get_atm_strike(nifty_ltp)
+        self._ce_token = ce_token
+        self._pe_token = pe_token
+        logger.debug("ATM updated strike=%s ce=%s pe=%s", self._atm_strike, ce_token, pe_token)
         return self._atm_strike
