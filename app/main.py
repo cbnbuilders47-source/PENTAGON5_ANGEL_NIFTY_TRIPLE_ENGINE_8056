@@ -27,6 +27,8 @@ from app.core.state import get_app_state
 from app.execution.execution_controller import ExecutionController
 from app.execution.recovery import ExecutionRecovery
 from app.risk.exit_monitor import ExitMonitor
+from app.validation.manual_tracker import ManualValidationTracker
+from app.validation.validation_service import ProductionValidationService
 from app.engines.adaptive_controller import AdaptiveController
 from app.engines.runtime import intelligence_loop
 from app.market.atm_manager import ATMManager
@@ -89,6 +91,16 @@ async def lifespan(app: FastAPI):
     force_exit_manager = ForceExitManager(app_state)
     order_manager = OrderManager(angel_manager, rate_limiter)
     position_manager = PositionManager(angel_manager, rate_limiter)
+    manual_validation_tracker = ManualValidationTracker()
+    validation_service = ProductionValidationService(
+        state=app_state,
+        readiness_gate=readiness_gate,
+        candle_builder=candle_builder,
+        atm_manager=atm_manager,
+        instrument_master=instrument_master,
+        scheduler=session_scheduler,
+        manual_tracker=manual_validation_tracker,
+    )
     execution_controller = ExecutionController(
         state=app_state,
         risk_manager=risk_manager,
@@ -97,6 +109,8 @@ async def lifespan(app: FastAPI):
         readiness_gate=readiness_gate,
         order_manager=order_manager,
         position_manager=position_manager,
+        manual_tracker=manual_validation_tracker,
+        validation_service=validation_service,
     )
     execution_recovery = ExecutionRecovery(app_state, order_manager, position_manager)
     exit_monitor = ExitMonitor(app_state, execution_controller, session_scheduler)
@@ -121,6 +135,8 @@ async def lifespan(app: FastAPI):
     app.state.position_manager = position_manager
     app.state.execution_controller = execution_controller
     app.state.execution_recovery = execution_recovery
+    app.state.manual_validation_tracker = manual_validation_tracker
+    app.state.validation_service = validation_service
     app.state.exit_monitor = exit_monitor
     app.state.shutdown_manager = ShutdownManager(app)
     app.state.broker_session = BrokerSessionService(
@@ -133,7 +149,9 @@ async def lifespan(app: FastAPI):
         instrument_master=instrument_master,
         atm_manager=atm_manager,
         candle_builder=candle_builder,
+        execution_recovery=execution_recovery,
     )
+    app.state.broker_session.bind_execution_controller(execution_controller)
 
     logger.info("%s v%s starting on port %s", settings.app_name, settings.app_version, settings.port)
     intel_task = asyncio.create_task(intelligence_loop(app))

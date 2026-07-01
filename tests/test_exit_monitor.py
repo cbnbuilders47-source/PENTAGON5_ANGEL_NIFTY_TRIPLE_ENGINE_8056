@@ -61,6 +61,6 @@ async def test_exit_monitor_triggers_target_on_fresh_ltp():
 @pytest.mark.asyncio
 async def test_exit_monitor_force_exit():
     monitor, controller = _make_exit_monitor()
-    monitor._scheduler._force_exit_active = True
+    monitor._state.force_exit_active = True
     await monitor.evaluate()
     controller.exit_all.assert_awaited_once_with(ExitReason.FORCE_EXIT)

@@ -29,7 +29,7 @@ class ExitMonitor:
             await self._controller.exit_all(ExitReason.KILL_SWITCH)
             return
 
-        if self._scheduler.force_exit_active:
+        if self._state.force_exit_active:
             await self._controller.exit_all(ExitReason.FORCE_EXIT)
             return
 

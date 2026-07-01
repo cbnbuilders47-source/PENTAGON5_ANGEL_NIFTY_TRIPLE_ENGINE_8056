@@ -78,7 +78,7 @@ class RiskManager:
         if self._locks.kill_switch_active:
             return False, "Kill switch active"
 
-        if self._scheduler.force_exit_active:
+        if self._state.force_exit_active:
             return False, "Force-exit window active"
 
         if not engine_new_entries_allowed(engine, datetime.now()):
@@ -110,18 +110,18 @@ class RiskManager:
         return True, "Risk gates passed (execution still disabled)"
 
     def should_force_exit(self) -> bool:
-        return self._scheduler.force_exit_active
+        return self._state.force_exit_active
 
     def _gate_kill_switch(self) -> RiskGate:
         ok = not self._locks.kill_switch_active
         return RiskGate("kill_switch", ok, "Kill switch off" if ok else "KILL SWITCH ACTIVE")
 
     def _gate_force_exit(self) -> RiskGate:
-        ok = not self._scheduler.force_exit_active
+        ok = not self._state.force_exit_active
         return RiskGate("force_exit", ok, "No force exit" if ok else "Force-exit enforcement active")
 
     def _gate_new_entries(self) -> RiskGate:
-        ok = self._scheduler.new_entries_allowed
+        ok = self._state.new_entries_allowed
         return RiskGate("new_entries", ok, "Entries allowed" if ok else "Stop-new-entry enforced")
 
     def _gate_margin(self) -> RiskGate:

@@ -1,6 +1,6 @@
 """Engine control endpoints."""
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from app.models.enums import EngineOperatingMode, ExitReason
@@ -15,7 +15,9 @@ class EngineModeRequest(BaseModel):
 @router.post("/{engine}/mode")
 async def set_engine_mode(request: Request, engine: str, body: EngineModeRequest) -> dict:
     ctrl = request.app.state.execution_controller
-    ctrl.set_engine_mode(engine, body.mode)
+    block_reason = ctrl.set_engine_mode(engine, body.mode)
+    if block_reason:
+        raise HTTPException(status_code=403, detail={"reason": block_reason, "engine": engine, "mode": body.mode.value})
     return {"engine": engine, "mode": body.mode.value}
 
 

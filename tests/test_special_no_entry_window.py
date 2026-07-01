@@ -182,7 +182,7 @@ async def test_force_exit_at_1514_overrides_special_window(mock_ctrl_dt, mock_ri
     mock_risk_dt.now.return_value = _dt(15, 14, 30)
     ctrl = _make_controller()
     ctrl.set_engine_mode("wick", EngineOperatingMode.AUTO)
-    ctrl._scheduler._force_exit_active = True
+    ctrl._state.force_exit_active = True
     result = await ctrl.process_signal(_signal("wick"))
     assert result.state == ExecutionState.BLOCKED_BY_TIME
     assert "Force-exit" in result.message

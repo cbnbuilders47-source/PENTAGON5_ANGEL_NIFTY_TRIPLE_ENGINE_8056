@@ -25,6 +25,9 @@ _EXCHANGE_MAP = {
 }
 
 _WS_MODE_LTP = 1
+_BASE_BACKOFF_SEC = 3
+_MAX_BACKOFF_SEC = 60
+_MAX_RECONNECT_ATTEMPTS = 12
 
 
 class WebSocketManager:
@@ -38,14 +41,21 @@ class WebSocketManager:
         self._subscriptions: dict[str, tuple[str, str]] = {}
         self._on_tick: Callable[[str, float, int], None] | None = None
         self._on_status_change: Callable[[bool], None] | None = None
+        self._on_reconnect_status: Callable[[dict], None] | None = None
         self._lock = threading.Lock()
         self._last_tick_at: dict[str, datetime] = {}
         self._stale_threshold_sec = 30
         self._reconnect_creds: dict | None = None
+        self._reconnect_attempt = 0
+        self._reconnecting = False
 
     @property
     def is_connected(self) -> bool:
         return self._connected
+
+    @property
+    def reconnect_attempt(self) -> int:
+        return self._reconnect_attempt
 
     async def connect(
         self,
@@ -56,11 +66,13 @@ class WebSocketManager:
         subscriptions: dict[str, tuple[str, str]],
         on_tick: Callable[[str, float, int], None],
         on_status_change: Callable[[bool], None] | None = None,
+        on_reconnect_status: Callable[[dict], None] | None = None,
     ) -> bool:
         await self.disconnect()
 
         self._on_tick = on_tick
         self._on_status_change = on_status_change
+        self._on_reconnect_status = on_reconnect_status
         self._subscriptions = dict(subscriptions)
         self._token_to_symbol = {token: symbol for symbol, (_, token) in subscriptions.items()}
         self._reconnect_creds = {
@@ -70,6 +82,7 @@ class WebSocketManager:
             "api_key": api_key,
             "subscriptions": dict(subscriptions),
         }
+        self._reconnect_attempt = 0
 
         try:
             await asyncio.to_thread(
@@ -112,6 +125,9 @@ class WebSocketManager:
             logger.info("WebSocket open — subscribing to %s", list(subscriptions.keys()))
             sws.subscribe(correlation_id, _WS_MODE_LTP, token_list)
             self._connected = True
+            self._reconnect_attempt = 0
+            self._reconnecting = False
+            self._emit_reconnect_status("connected", "WebSocket connected")
             if self._on_status_change:
                 self._on_status_change(True)
 
@@ -175,16 +191,36 @@ class WebSocketManager:
             return True
         return (datetime.now() - last).total_seconds() > self._stale_threshold_sec
 
+    def _emit_reconnect_status(self, status: str, message: str) -> None:
+        payload = {
+            "status": status,
+            "message": message,
+            "attempt": self._reconnect_attempt,
+            "at": datetime.now().isoformat(),
+        }
+        if self._on_reconnect_status:
+            self._on_reconnect_status(payload)
+
     def _schedule_reconnect(self) -> None:
-        if not self._reconnect_creds:
+        if not self._reconnect_creds or self._reconnecting:
             return
+        if self._reconnect_attempt >= _MAX_RECONNECT_ATTEMPTS:
+            logger.error("WebSocket reconnect exhausted after %d attempts", self._reconnect_attempt)
+            self._emit_reconnect_status("failed", "Reconnect attempts exhausted")
+            return
+
         creds = self._reconnect_creds
+        self._reconnecting = True
+        self._reconnect_attempt += 1
+        delay = min(_MAX_BACKOFF_SEC, _BASE_BACKOFF_SEC * (2 ** (self._reconnect_attempt - 1)))
+        logger.info("WebSocket reconnect attempt %d in %.1fs", self._reconnect_attempt, delay)
+        self._emit_reconnect_status("retrying", f"Reconnect attempt {self._reconnect_attempt} in {delay:.0f}s")
 
         def _reconnect() -> None:
-            time.sleep(3)
+            time.sleep(delay)
+            self._reconnecting = False
             if self._connected:
                 return
-            logger.info("WebSocket reconnect attempt")
             try:
                 self._start_ws_thread(
                     creds["jwt_token"],
@@ -195,8 +231,10 @@ class WebSocketManager:
                 )
             except Exception as exc:
                 logger.error("WebSocket reconnect failed: %s", exc)
+                self._emit_reconnect_status("error", str(exc))
                 if self._on_status_change:
                     self._on_status_change(False)
+                self._schedule_reconnect()
 
         threading.Thread(target=_reconnect, daemon=True, name="ws-reconnect").start()
 
@@ -209,6 +247,10 @@ class WebSocketManager:
                     del self._token_to_symbol[old_token]
                 self._subscriptions[symbol] = (exchange, token)
                 self._token_to_symbol[str(token)] = symbol
+            if self._reconnect_creds:
+                merged = dict(self._reconnect_creds.get("subscriptions", {}))
+                merged.update(options)
+                self._reconnect_creds["subscriptions"] = merged
 
         if not self._ws or not self._connected:
             return
@@ -222,6 +264,9 @@ class WebSocketManager:
             logger.error("ATM resubscribe failed: %s", exc)
 
     async def disconnect(self) -> None:
+        self._reconnect_creds = None
+        self._reconnect_attempt = 0
+        self._reconnecting = False
         if self._ws:
             try:
                 await asyncio.to_thread(self._ws.close_connection)

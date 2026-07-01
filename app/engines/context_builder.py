@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from app.core.state import AppState
-from app.intelligence.time_rules import bias_should_be_locked, resolve_session_phase
+from app.intelligence.time_rules import bias_should_be_locked
 from app.intelligence.types import TradingContext
 from app.market.candle_builder import CandleBuilder
 from app.models.enums import MarketMode
@@ -18,7 +18,7 @@ def build_context(
     now: datetime | None = None,
 ) -> TradingContext:
     now = now or datetime.now()
-    phase = resolve_session_phase(now)
+    phase = state.session_phase
 
     return TradingContext(
         nifty_candles=candle_builder.get_candles("NIFTY"),

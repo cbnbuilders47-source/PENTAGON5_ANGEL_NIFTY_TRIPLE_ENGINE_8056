@@ -15,6 +15,7 @@ from app.api.v1 import (
     scheduler,
     system,
     trading_data,
+    validation,
 )
 
 api_router = APIRouter(prefix="/api/v1")
@@ -31,3 +32,4 @@ api_router.include_router(scheduler.router, prefix="/scheduler", tags=["schedule
 api_router.include_router(execution.router, prefix="/execution", tags=["execution"])
 api_router.include_router(trading_data.router, tags=["trading-data"])
 api_router.include_router(system.router, prefix="/system", tags=["system"])
+api_router.include_router(validation.router, prefix="/validation", tags=["validation"])

@@ -81,6 +81,28 @@ body.terminal {
 .alert-ticker.ok { color: var(--bull); border-color: rgba(0, 230, 118, 0.2); }
 .alert-ticker.error { color: var(--bear); border-color: rgba(255, 61, 90, 0.25); }
 
+.validation-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 10px 6px;
+  padding: 6px 12px;
+  position: relative;
+  z-index: 1;
+}
+.val-chip {
+  font-size: 11px;
+  font-family: var(--mono);
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-dim);
+}
+.val-chip.ok { color: var(--bull); border-color: rgba(0, 230, 118, 0.35); }
+.val-chip.warn { color: var(--warn); border-color: rgba(255, 176, 32, 0.35); }
+.val-chip.blocked { color: var(--bear); border-color: rgba(255, 61, 90, 0.35); }
+
 /* ── Header ── */
 .top-header {
   display: grid;

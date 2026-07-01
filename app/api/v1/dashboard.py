@@ -173,4 +173,5 @@ async def get_operator_diagnostics(request: Request) -> dict:
         "nifty_day_high": day_high,
         "nifty_day_low": day_low,
         "readiness": state.readiness_report,
+        **request.app.state.validation_service.operator_bundle(),
     }

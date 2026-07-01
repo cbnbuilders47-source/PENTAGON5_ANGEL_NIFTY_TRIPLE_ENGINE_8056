@@ -28,18 +28,30 @@ class ExecutionRecovery:
         positions = await self._positions.sync_positions()
 
         recovered = 0
+        unknown = 0
         for pos in positions:
             engine = pos.get("engine", "unknown")
             if engine in self._state.engines:
                 self._state.set_live_position(engine, pos)
                 self._state.engines[engine].open_positions = 1
                 recovered += 1
+            else:
+                pos["unknown"] = True
+                unknown += 1
+                logger.warning("Unknown engine in recovered position: %s", engine)
 
+        clean = unknown == 0
+        status = "clean" if clean else "dirty"
         summary = {
             "orders": len(orders),
             "trades": len(trades),
             "positions_recovered": recovered,
+            "unknown_positions": unknown,
+            "status": status,
+            "clean": clean,
+            "message": "Recovery clean" if clean else f"{unknown} unknown position(s) require review",
         }
         self._state.set_recovery_summary(summary)
+        self._state.set_recovery_status(summary)
         logger.info("Recovery complete: %s", summary)
         return summary

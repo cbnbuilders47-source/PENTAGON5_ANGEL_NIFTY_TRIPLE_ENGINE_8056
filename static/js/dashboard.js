@@ -1059,12 +1059,42 @@ function updateAlertTicker(state, op, readiness) {
   el.textContent = parts.join(" · ");
 }
 
-async function refreshOperator() {
+function updateValidationStrip(op) {
+  const val = op?.validation_status || {};
+  const manual = op?.manual_validation_status || {};
+  const autoMap = op?.auto_allowed_by_engine || {};
+  const recovery = op?.recovery_status || {};
+
+  const set = (id, text, cls) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.className = `val-chip ${cls || ""}`.trim();
+  };
+
+  const monitorOk = val.ready_for_manual_validation;
+  set("val-monitor-status", `Monitor Val: ${monitorOk ? "READY" : "INCOMPLETE"}`, monitorOk ? "ok" : "warn");
+
+  const passed = ["normal", "wick", "ultra"].filter((e) => manual[`${e}_manual_cycle_passed`]).length;
+  set("val-manual-status", `Manual: ${passed}/3 passed`, passed > 0 ? "ok" : "warn");
+
+  const anyAuto = Object.values(autoMap).some((v) => v?.allowed);
+  const blocked = Object.entries(autoMap).find(([, v]) => !v?.allowed);
+  set(
+    "val-auto-status",
+    anyAuto ? "AUTO: ALLOWED (per engine)" : `AUTO: BLOCKED${blocked ? " — " + blocked[1].reason : ""}`,
+    anyAuto ? "ok" : "blocked"
+  );
+
+  const recClean = recovery.status === "clean" || recovery.status === "unknown";
+  set("val-recovery-status", `Recovery: ${(recovery.status || "unknown").toUpperCase()}`, recClean ? "ok" : "warn");
+}
   try {
     const res = await apiFetch("/dashboard/operator");
     if (!res.ok) return;
     const data = await res.json();
     lastOperatorData = data;
+    updateValidationStrip(data);
     updateEngineHealth(data, window.__lastDashboardState);
     updateOrderMonitor(data);
     updateAlertTicker(window.__lastDashboardState, data, data.readiness);
@@ -1217,6 +1247,13 @@ async function setEngineMode(engine, mode) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ mode }),
   });
+  if (res.status === 403) {
+    const data = await res.json();
+    const reason = data.detail?.reason || data.detail || "AUTO blocked";
+    showToast(`${engine} AUTO blocked: ${reason}`, "error");
+    refreshState();
+    return;
+  }
   if (res.ok) { showToast(`${engine} → ${mode}`, "ok"); refreshState(); }
 }
 

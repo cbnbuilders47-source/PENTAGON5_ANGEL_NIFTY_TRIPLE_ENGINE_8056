@@ -22,10 +22,12 @@ from app.execution.execution_models import (
 from app.execution.order_lifecycle import OrderLifecycle
 from app.execution.quantity import calculate_lots
 from app.intelligence.time_rules import engine_new_entries_allowed, special_no_entry_block_message
-from app.models.enums import EngineOperatingMode, ExecutionState, ExitReason
+from app.models.enums import EngineOperatingMode, EngineStatus, ExecutionState, ExitReason
 from app.risk.locks import TradingLocks
 from app.risk.risk_manager import RiskManager
 from app.scheduler.session_scheduler import SessionScheduler
+from app.validation.manual_tracker import ManualValidationTracker
+from app.validation.validation_service import ProductionValidationService
 
 logger = get_logger(__name__)
 
@@ -44,6 +46,8 @@ class ExecutionController:
         readiness_gate: BrokerReadinessGate,
         order_manager: OrderManager,
         position_manager: PositionManager,
+        manual_tracker: ManualValidationTracker | None = None,
+        validation_service: ProductionValidationService | None = None,
     ) -> None:
         self._state = state
         self._risk = risk_manager
@@ -55,6 +59,8 @@ class ExecutionController:
         self._audit = ExecutionAudit()
         self._pending_manual: dict[str, PendingManualApproval] = {}
         self._recent_results: list[ExecutionResult] = []
+        self._manual = manual_tracker
+        self._validation = validation_service
 
     @property
     def pending_manual(self) -> dict[str, PendingManualApproval]:
@@ -64,9 +70,15 @@ class ExecutionController:
     def get_engine_mode(self, engine: str) -> EngineOperatingMode:
         return self._state.get_engine_mode(engine)
 
-    def set_engine_mode(self, engine: str, mode: EngineOperatingMode) -> None:
+    def set_engine_mode(self, engine: str, mode: EngineOperatingMode) -> str | None:
+        if mode == EngineOperatingMode.AUTO and self._validation:
+            gate = self._validation.check_auto_allowed(engine)
+            if not gate.allowed:
+                logger.warning("AUTO blocked for %s: %s", engine, gate.reason)
+                return gate.reason
         self._state.set_engine_mode(engine, mode)
         logger.info("Engine %s mode set to %s", engine, mode.value)
+        return None
 
     async def process_signal(self, signal: ExecutionSignal) -> ExecutionResult:
         request_id = str(uuid.uuid4())[:12]
@@ -87,6 +99,7 @@ class ExecutionController:
             self._state.engines[signal.engine].allocated_margin,
             signal.premium,
             self._state.available_margin,
+            max_lots=self._state.auto_validation_max_lots.get(signal.engine) if mode == EngineOperatingMode.AUTO else None,
         )
         if qty <= 0:
             lifecycle.transition(ExecutionState.BLOCKED_BY_MARGIN)
@@ -107,6 +120,8 @@ class ExecutionController:
             return result
 
         if mode == EngineOperatingMode.MANUAL:
+            if signal.action.startswith("BUY"):
+                self._track_manual(signal.engine, "buy_signal_generated")
             approval = PendingManualApproval(
                 approval_id=request_id,
                 engine=signal.engine,
@@ -118,6 +133,8 @@ class ExecutionController:
             )
             self._pending_manual[request_id] = approval
             self._state.set_pending_approval(approval.to_dict())
+            if signal.action.startswith("BUY"):
+                self._track_manual(signal.engine, "manual_approval_shown")
             lifecycle.transition(ExecutionState.BLOCKED_BY_ENGINE_MODE)
             result = ExecutionResult(request_id=request_id, engine=signal.engine, state=lifecycle.state, message="Awaiting manual approval", quantity=qty)
             self._record(result)
@@ -143,6 +160,7 @@ class ExecutionController:
         block = self._check_gates(approval.signal, EngineOperatingMode.MANUAL, lifecycle, skip_duplicate=True)
         if block:
             return ExecutionResult(approval_id, approval.engine, lifecycle.state, block)
+        self._track_manual(approval.engine, "user_approval_received")
         lifecycle.transition(ExecutionState.APPROVED)
         return await self._execute_live(approval_id, approval.signal, lifecycle, approval.lots, approval.quantity)
 
@@ -170,6 +188,10 @@ class ExecutionController:
         pos = self._state.live_positions.get(engine)
         if not pos:
             return ExecutionResult(str(uuid.uuid4())[:12], engine, ExecutionState.COMPLETED, "No open position")
+        mode = self.get_engine_mode(engine)
+        if mode == EngineOperatingMode.MANUAL:
+            self._track_manual(engine, "exit_signal_generated")
+            self._track_manual(engine, "manual_exit_approval_received")
         signal = ExecutionSignal(
             engine=engine, action="EXIT", symbol=pos.get("option_side", ""),
             tradingsymbol=pos["tradingsymbol"], token=pos["token"],
@@ -199,7 +221,7 @@ class ExecutionController:
             lifecycle.transition(ExecutionState.BLOCKED_BY_RISK)
             return f"Engine {signal.engine} already has open position"
 
-        if self._scheduler.force_exit_active and signal.action.startswith("BUY"):
+        if self._state.force_exit_active and signal.action.startswith("BUY"):
             lifecycle.transition(ExecutionState.BLOCKED_BY_TIME)
             return "Force-exit window — entries blocked"
 
@@ -221,6 +243,10 @@ class ExecutionController:
                 lifecycle.transition(ExecutionState.BLOCKED_BY_BROKER)
                 return "Broker not ready"
 
+        if self._state.broker_reconnect_required and signal.action.startswith("BUY"):
+            lifecycle.transition(ExecutionState.BLOCKED_BY_BROKER)
+            return "Broker reconnect required"
+
         return None
 
     async def _execute_live(
@@ -233,6 +259,9 @@ class ExecutionController:
     ) -> ExecutionResult:
         start = time.perf_counter()
         lifecycle.transition(ExecutionState.ORDER_SENT)
+        is_buy = not (signal.action == "EXIT" or signal.action.startswith("EXIT"))
+        if is_buy:
+            self._track_manual(signal.engine, "angel_buy_order_sent")
 
         if signal.action == "EXIT" or signal.action.startswith("EXIT"):
             pos = self._state.live_positions.get(signal.engine)
@@ -271,6 +300,9 @@ class ExecutionController:
         lifecycle.transition(ExecutionState.ORDER_CONFIRMED)
         lifecycle.transition(ExecutionState.POSITION_ACTIVE)
         exec_price = float(confirmed.get("executed_price") or signal.premium)
+        self._track_manual(signal.engine, "buy_order_confirmed")
+        self._track_manual(signal.engine, "executed_price_captured")
+        self._track_manual(signal.engine, "position_active")
         position = {
             "engine": signal.engine,
             "tradingsymbol": signal.tradingsymbol,
@@ -306,6 +338,7 @@ class ExecutionController:
         lifecycle = OrderLifecycle()
         lifecycle.transition(ExecutionState.EXIT_SIGNAL_RECEIVED)
         lifecycle.transition(ExecutionState.EXIT_ORDER_SENT)
+        self._track_manual(signal.engine, "sell_order_sent")
 
         qty = int(pos.get("quantity", 0))
         response = await self._orders.place_sell_order(
@@ -332,6 +365,8 @@ class ExecutionController:
         self._state.engines[signal.engine].open_positions = 0
         self._state.engines[signal.engine].pnl += pnl
         self._state.record_trade(signal.engine, pos, exit_price, order_id, pnl, signal.reasons[0] if signal.reasons else "EXIT")
+        self._track_manual(signal.engine, "sell_order_confirmed")
+        self._track_manual(signal.engine, "report_row_created")
 
         result = ExecutionResult(
             request_id=request_id, engine=signal.engine, state=ExecutionState.EXIT_CONFIRMED,
@@ -339,8 +374,24 @@ class ExecutionController:
             quantity=qty, latency_ms=latency, broker_response=confirmed,
         )
         lifecycle.transition(ExecutionState.COMPLETED)
+        self._reset_engine_after_exit(signal.engine)
         self._record(result)
         return result
+
+    def on_position_ltp_updated(self, engine: str) -> None:
+        if engine in self._state.live_positions:
+            self._track_manual(engine, "ltp_updating")
+            self._track_manual(engine, "pnl_updating")
+
+    def _reset_engine_after_exit(self, engine: str) -> None:
+        if engine in self._state.engines:
+            self._state.engines[engine].open_positions = 0
+            self._state.engines[engine].status = EngineStatus.IDLE
+        logger.info("ENGINE RESET AFTER EXIT — %s", engine)
+
+    def _track_manual(self, engine: str, step: str) -> None:
+        if self._manual:
+            self._manual.mark(engine, step)
 
     def _record(self, result: ExecutionResult) -> None:
         self._recent_results.append(result)
@@ -348,6 +399,7 @@ class ExecutionController:
             self._recent_results = self._recent_results[-100:]
         self._state.set_execution_result(result.to_dict())
         self._audit.log_result(result)
+        self._track_manual(result.engine, "logs_created")
 
     def _expire_manual_approvals(self) -> None:
         now = datetime.now()

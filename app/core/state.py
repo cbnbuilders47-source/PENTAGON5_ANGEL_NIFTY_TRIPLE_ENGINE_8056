@@ -83,6 +83,19 @@ class AppState:
     last_updated: datetime = field(default_factory=datetime.now)
     started_at: datetime = field(default_factory=datetime.now)
     last_order_at: datetime | None = None
+    validation_last_success: datetime | None = None
+    broker_reconnect_required: bool = False
+    recovery_status: dict = field(default_factory=lambda: {
+        "status": "unknown",
+        "clean": True,
+        "message": "Startup — recovery not run",
+    })
+    reconnect_status: dict = field(default_factory=dict)
+    auto_validation_max_lots: dict[str, int] = field(default_factory=lambda: {
+        ENGINE_NORMAL: 1,
+        ENGINE_WICK: 1,
+        ENGINE_ULTRA: 1,
+    })
 
     def __post_init__(self) -> None:
         for name, pct in self.allocations.items():
@@ -244,6 +257,33 @@ class AppState:
     def set_recovery_summary(self, summary: dict) -> None:
         with self._lock:
             self.recovery_summary = summary
+            self.last_updated = datetime.now()
+
+    def set_recovery_status(self, status: dict) -> None:
+        with self._lock:
+            self.recovery_status = status
+            self.last_updated = datetime.now()
+
+    def set_reconnect_status(self, status: dict) -> None:
+        with self._lock:
+            self.reconnect_status = status
+            self.last_updated = datetime.now()
+
+    def set_broker_reconnect_required(self, required: bool, reason: str = "") -> None:
+        with self._lock:
+            self.broker_reconnect_required = required
+            if required:
+                self.recovery_status = {
+                    **self.recovery_status,
+                    "status": "dirty",
+                    "clean": False,
+                    "message": reason or "Broker reconnect required",
+                }
+            self.last_updated = datetime.now()
+
+    def mark_validation_success(self) -> None:
+        with self._lock:
+            self.validation_last_success = datetime.now()
             self.last_updated = datetime.now()
 
     def update_nifty_quote(self, ltp: float) -> None:
