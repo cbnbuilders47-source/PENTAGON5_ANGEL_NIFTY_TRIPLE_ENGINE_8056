@@ -14,24 +14,55 @@
       <span class="brand-mark">P5</span>
       <div>
         <h1>{{ app_name }}</h1>
-        <p class="subtitle">NIFTY Options · LIVE ONLY · Port 8056</p>
+        <p class="subtitle">LIVE TRADING DASHBOARD · NIFTY ONLY · Port 8056</p>
+      </div>
+    </div>
+    <div class="header-center">
+      <div class="nifty-quote">
+        <span class="nifty-label">NIFTY 50</span>
+        <span id="nifty-ltp" class="nifty-ltp">—</span>
+        <span id="nifty-change" class="nifty-change neutral">—</span>
+      </div>
+      <div class="bull-bear-gauge">
+        <span id="bull-pct" class="bull-pct">Bull 50%</span>
+        <span id="bear-pct" class="bear-pct">Bear 50%</span>
       </div>
     </div>
     <div class="header-right">
+      <div class="header-meta">
+        <span id="clock-display" class="meta-time">—</span>
+        <span id="date-display" class="meta-date">—</span>
+        <span id="market-status" class="pill pill-live">LIVE</span>
+      </div>
       <div class="status-pills">
         <span id="health-status" class="pill">HEALTH —</span>
         <span id="ready-status" class="pill">READY —</span>
         <span id="session-phase" class="pill">OFFLINE</span>
-        <span id="broker-status" class="pill pill-warn">BROKER OFFLINE</span>
+        <span id="broker-status" class="pill pill-warn">ANGEL OFFLINE</span>
         <span id="ws-status" class="pill pill-warn">WS OFFLINE</span>
-        <span class="pill pill-live">LIVE ONLY</span>
       </div>
-      <div class="broker-actions">
-        <button id="btn-connect" class="btn-primary btn-sm">Connect Broker</button>
-        <button id="btn-disconnect" class="btn-secondary btn-sm" disabled>Disconnect</button>
+      <div class="margin-header">
+        <div><span class="mh-label">Available</span><span id="hdr-available-margin">₹0</span></div>
+        <div><span class="mh-label">Used</span><span id="hdr-used-margin">₹0</span></div>
+        <div><span class="mh-label">P&amp;L</span><span id="hdr-total-pnl" class="neutral">₹0</span></div>
       </div>
     </div>
   </header>
+
+  <nav class="master-bar">
+    <button id="btn-connect" class="btn-primary btn-sm">Connect Angel</button>
+    <button id="btn-disconnect" class="btn-secondary btn-sm" disabled>Disconnect</button>
+    <button id="btn-health" class="btn-ghost btn-sm">Health Check</button>
+    <button id="btn-token" class="btn-ghost btn-sm">Token Check</button>
+    <button id="btn-restart" class="btn-ghost btn-sm">Restart Engine</button>
+    <button id="btn-clear-storage" class="btn-ghost btn-sm">Safe Clear Storage</button>
+    <button id="btn-clear-logs" class="btn-ghost btn-sm">Clear Logs</button>
+    <button id="btn-download-report" class="btn-ghost btn-sm">Download Report</button>
+    <button id="btn-exit-all" class="btn-warn btn-sm">Emergency Exit All</button>
+    <button id="btn-exit-server" class="btn-danger btn-sm">Exit Server</button>
+  </nav>
+
+  <div id="manual-approvals" class="manual-approvals hidden"></div>
 
   <div id="toast" class="toast hidden"></div>
 
@@ -88,7 +119,14 @@
         <div><span class="stat-label">Today P&amp;L</span><span class="engine-pnl" data-engine="normal">₹0.00</span></div>
         <div><span class="stat-label">Positions</span><span class="engine-positions" data-engine="normal">0</span></div>
       </div>
-      <p class="engine-note">Execution disabled — monitoring only</p>
+      <p class="engine-note" data-engine="normal">Mode: <span class="engine-mode" data-engine="normal">MONITOR</span></p>
+      <div class="engine-controls" data-engine="normal">
+        <button class="btn-ghost btn-xs eng-btn-start" data-engine="normal">Start</button>
+        <button class="btn-ghost btn-xs eng-btn-stop" data-engine="normal">Stop</button>
+        <button class="btn-ghost btn-xs eng-btn-auto" data-engine="normal">Auto</button>
+        <button class="btn-ghost btn-xs eng-btn-manual" data-engine="normal">Manual</button>
+        <button class="btn-warn btn-xs eng-btn-exit" data-engine="normal">Exit</button>
+      </div>
       <div class="engine-intel" data-engine="normal">
         <div class="intel-row"><span>Phase</span><span class="engine-phase">—</span></div>
         <div class="intel-row"><span>Decision</span><span class="engine-decision">—</span></div>
@@ -113,7 +151,14 @@
         <div><span class="stat-label">Today P&amp;L</span><span class="engine-pnl" data-engine="wick">₹0.00</span></div>
         <div><span class="stat-label">Positions</span><span class="engine-positions" data-engine="wick">0</span></div>
       </div>
-      <p class="engine-note">Execution disabled — monitoring only</p>
+      <p class="engine-note" data-engine="wick">Mode: <span class="engine-mode" data-engine="wick">MONITOR</span></p>
+      <div class="engine-controls" data-engine="wick">
+        <button class="btn-ghost btn-xs eng-btn-start" data-engine="wick">Start</button>
+        <button class="btn-ghost btn-xs eng-btn-stop" data-engine="wick">Stop</button>
+        <button class="btn-ghost btn-xs eng-btn-auto" data-engine="wick">Auto</button>
+        <button class="btn-ghost btn-xs eng-btn-manual" data-engine="wick">Manual</button>
+        <button class="btn-warn btn-xs eng-btn-exit" data-engine="wick">Exit</button>
+      </div>
       <div class="engine-intel" data-engine="wick">
         <div class="intel-row"><span>Phase</span><span class="engine-phase">—</span></div>
         <div class="intel-row"><span>Decision</span><span class="engine-decision">—</span></div>
@@ -138,7 +183,14 @@
         <div><span class="stat-label">Today P&amp;L</span><span class="engine-pnl" data-engine="ultra">₹0.00</span></div>
         <div><span class="stat-label">Positions</span><span class="engine-positions" data-engine="ultra">0</span></div>
       </div>
-      <p class="engine-note">Execution disabled — monitoring only</p>
+      <p class="engine-note" data-engine="ultra">Mode: <span class="engine-mode" data-engine="ultra">MONITOR</span></p>
+      <div class="engine-controls" data-engine="ultra">
+        <button class="btn-ghost btn-xs eng-btn-start" data-engine="ultra">Start</button>
+        <button class="btn-ghost btn-xs eng-btn-stop" data-engine="ultra">Stop</button>
+        <button class="btn-ghost btn-xs eng-btn-auto" data-engine="ultra">Auto</button>
+        <button class="btn-ghost btn-xs eng-btn-manual" data-engine="ultra">Manual</button>
+        <button class="btn-warn btn-xs eng-btn-exit" data-engine="ultra">Exit</button>
+      </div>
       <div class="engine-intel" data-engine="ultra">
         <div class="intel-row"><span>Phase</span><span class="engine-phase">—</span></div>
         <div class="intel-row"><span>Decision</span><span class="engine-decision">—</span></div>
@@ -208,6 +260,16 @@
     <section class="card logs-card span-3">
       <div class="logs-header">
         <h2>Live Logs</h2>
+        <div class="log-tabs">
+          <button class="log-tab active" data-log="system">System</button>
+          <button class="log-tab" data-log="broker">Broker</button>
+          <button class="log-tab" data-log="trade">Trade</button>
+          <button class="log-tab" data-log="engine">Engine</button>
+          <button class="log-tab" data-log="risk">Risk</button>
+          <button class="log-tab" data-log="error">Error</button>
+          <button class="log-tab" data-log="audit">Audit</button>
+          <button class="log-tab" data-log="execution">Execution</button>
+        </div>
         <button id="btn-clear-logs-view" class="btn-ghost btn-sm">Clear View</button>
       </div>
       <pre id="logs-output" class="logs-output">Loading logs…</pre>

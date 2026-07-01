@@ -59,6 +59,13 @@ async def get_state(request: Request) -> StateResponse:
             )
             for e in state.engines.values()
         ],
+        engine_modes=dict(state.engine_modes),
+        live_positions=dict(state.live_positions),
+        pending_approvals=list(state.pending_approvals),
+        nifty_ltp=state.nifty_ltp,
+        nifty_change_pts=state.nifty_change_pts,
+        nifty_change_pct=state.nifty_change_pct,
+        used_margin=state.used_margin,
         last_updated=state.last_updated,
     )
 
@@ -88,9 +95,22 @@ async def get_pnl(request: Request) -> PnlResponse:
 @router.get("/logs", response_model=LogsResponse)
 async def get_logs(
     lines: int = Query(default=80, ge=10, le=500),
+    log_type: str = Query(default="system", description="broker|trade|engine|risk|system|error|audit|health|execution"),
 ) -> LogsResponse:
     settings = get_settings()
-    log_file: Path = settings.logs_dir / "app.log"
+    log_map = {
+        "broker": "broker.log",
+        "trade": "trade.log",
+        "engine": "engine.log",
+        "risk": "risk.log",
+        "system": "app.log",
+        "error": "error.log",
+        "audit": "execution_audit.log",
+        "health": "health.log",
+        "execution": "execution_audit.log",
+    }
+    filename = log_map.get(log_type, "app.log")
+    log_file: Path = settings.logs_dir / filename
     if not log_file.exists():
         return LogsResponse(lines=[], count=0)
 

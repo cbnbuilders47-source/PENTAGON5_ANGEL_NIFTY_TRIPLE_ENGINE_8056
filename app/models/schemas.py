@@ -74,6 +74,13 @@ class StateResponse(BaseModel):
     new_entries_allowed: bool = False
     force_exit_active: bool = False
     kill_switch_active: bool = False
+    engine_modes: dict[str, str] = Field(default_factory=dict)
+    live_positions: dict = Field(default_factory=dict)
+    pending_approvals: list[dict] = Field(default_factory=list)
+    nifty_ltp: float = 0.0
+    nifty_change_pts: float = 0.0
+    nifty_change_pct: float = 0.0
+    used_margin: float = 0.0
     allocations: AllocationResponse
     engines: list[EngineInfo]
     last_updated: datetime

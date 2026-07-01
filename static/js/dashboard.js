@@ -32,6 +32,17 @@ const toast = document.getElementById("toast");
 
 let brokerBusy = false;
 let logsCleared = false;
+let activeLogTab = "system";
+
+function updateClock() {
+  const now = new Date();
+  const el = document.getElementById("clock-display");
+  const dateEl = document.getElementById("date-display");
+  if (el) el.textContent = now.toLocaleTimeString("en-IN", { hour12: false });
+  if (dateEl) dateEl.textContent = now.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+}
+setInterval(updateClock, 1000);
+updateClock();
 
 // ── Utilities ──────────────────────────────────────────────
 
@@ -304,6 +315,8 @@ async function refreshPnL() {
 
     document.getElementById("pnl-realized").textContent = formatCurrency(data.realized);
     document.getElementById("pnl-unrealized").textContent = formatCurrency(data.unrealized);
+    const hdrPnl = document.getElementById("hdr-total-pnl");
+    if (hdrPnl) { hdrPnl.textContent = formatCurrency(data.total); hdrPnl.className = pnlClass(data.total); }
 
     const container = document.getElementById("pnl-engines");
     container.innerHTML = data.engines.map((e) => `
@@ -408,7 +421,7 @@ async function refreshCandles() {
 async function refreshLogs() {
   if (logsCleared) return;
   try {
-    const res = await apiFetch("/dashboard/logs?lines=100");
+    const res = await apiFetch(`/dashboard/logs?lines=100&log_type=${activeLogTab}`);
     if (!res.ok) return;
     const data = await res.json();
     const output = document.getElementById("logs-output");
@@ -416,6 +429,16 @@ async function refreshLogs() {
     output.scrollTop = output.scrollHeight;
   } catch { /* silent */ }
 }
+
+document.querySelectorAll(".log-tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".log-tab").forEach((t) => t.classList.remove("active"));
+    tab.classList.add("active");
+    activeLogTab = tab.dataset.log;
+    logsCleared = false;
+    refreshLogs();
+  });
+});
 
 document.getElementById("btn-clear-logs-view").addEventListener("click", () => {
   logsCleared = true;
@@ -434,6 +457,31 @@ async function refreshState() {
     document.getElementById("session-phase").textContent = state.session_phase;
     setBrokerUI(state.broker_connected, state.websocket_connected);
     document.getElementById("available-margin").textContent = formatCurrency(state.available_margin);
+    document.getElementById("hdr-available-margin").textContent = formatCurrency(state.available_margin);
+    document.getElementById("hdr-used-margin").textContent = formatCurrency(state.used_margin || 0);
+
+    if (state.nifty_ltp) {
+      document.getElementById("nifty-ltp").textContent = state.nifty_ltp.toFixed(2);
+      const chg = document.getElementById("nifty-change");
+      const pts = state.nifty_change_pts || 0;
+      const pct = state.nifty_change_pct || 0;
+      chg.textContent = `${pts >= 0 ? "+" : ""}${pts.toFixed(2)} (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%)`;
+      chg.className = `nifty-change ${pnlClass(pts)}`;
+    }
+
+    const bullPct = state.bias?.direction === "BULL" ? state.bias.confidence_pct : 100 - (state.bias?.confidence_pct || 50);
+    const bearPct = 100 - bullPct;
+    document.getElementById("bull-pct").textContent = `Bull ${bullPct.toFixed(0)}%`;
+    document.getElementById("bear-pct").textContent = `Bear ${bearPct.toFixed(0)}%`;
+
+    if (state.engine_modes) {
+      Object.entries(state.engine_modes).forEach(([eng, mode]) => {
+        const el = document.querySelector(`.engine-mode[data-engine="${eng}"]`);
+        if (el) el.textContent = mode;
+      });
+    }
+
+    updateManualApprovals(state.pending_approvals || []);
     applyBias(state.bias);
 
     document.getElementById("market-mode").textContent = "Mode: " + (state.market_mode || "—");
@@ -455,6 +503,87 @@ async function refreshState() {
       "Last updated: " + new Date(state.last_updated).toLocaleTimeString();
   } catch { /* silent */ }
 }
+
+// ── Master controls & engine modes ─────────────────────────
+
+async function setEngineMode(engine, mode) {
+  const res = await apiFetch(`/engine/${engine}/mode`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode }),
+  });
+  if (res.ok) { showToast(`${engine} → ${mode}`, "ok"); refreshState(); }
+}
+
+document.querySelectorAll(".eng-btn-auto").forEach((btn) => {
+  btn.addEventListener("click", () => setEngineMode(btn.dataset.engine, "AUTO"));
+});
+document.querySelectorAll(".eng-btn-manual").forEach((btn) => {
+  btn.addEventListener("click", () => setEngineMode(btn.dataset.engine, "MANUAL"));
+});
+document.querySelectorAll(".eng-btn-stop").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    await apiFetch(`/engine/${btn.dataset.engine}/stop`, { method: "POST" });
+    refreshState();
+  });
+});
+document.querySelectorAll(".eng-btn-start").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    await apiFetch(`/engine/${btn.dataset.engine}/start`, { method: "POST" });
+    setEngineMode(btn.dataset.engine, "MONITOR");
+  });
+});
+document.querySelectorAll(".eng-btn-exit").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    await apiFetch(`/engine/${btn.dataset.engine}/exit`, { method: "POST" });
+    showToast(`${btn.dataset.engine} exit sent`, "info");
+    refreshState();
+  });
+});
+
+function updateManualApprovals(approvals) {
+  const container = document.getElementById("manual-approvals");
+  if (!approvals.length) { container.classList.add("hidden"); container.innerHTML = ""; return; }
+  container.classList.remove("hidden");
+  container.innerHTML = approvals.map((a) => `
+    <div class="manual-card">
+      <div><strong>${a.engine.toUpperCase()}</strong> ${a.action} · ${a.option_side || ""} · Qty ${a.quantity}</div>
+      <div>
+        <button class="btn-primary btn-xs" onclick="approveManual('${a.approval_id}')">Approve</button>
+        <button class="btn-ghost btn-xs" onclick="rejectManual('${a.approval_id}')">Reject</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+async function approveManual(id) {
+  await apiFetch("/execution/manual/approve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approval_id: id }) });
+  showToast("Order approved", "ok"); refreshState();
+}
+async function rejectManual(id) {
+  await apiFetch("/execution/manual/reject", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approval_id: id }) });
+  showToast("Signal rejected", "info"); refreshState();
+}
+window.approveManual = approveManual;
+window.rejectManual = rejectManual;
+
+document.getElementById("btn-exit-all")?.addEventListener("click", async () => {
+  await apiFetch("/execution/exit-all", { method: "POST" });
+  showToast("Emergency exit all triggered", "error");
+});
+document.getElementById("btn-download-report")?.addEventListener("click", () => {
+  window.open(`${API}/reports/download`, "_blank");
+});
+document.getElementById("btn-restart")?.addEventListener("click", async () => {
+  await apiFetch("/system/restart", { method: "POST" });
+  showToast("Engine restart / recovery", "info");
+});
+document.getElementById("btn-health")?.addEventListener("click", () => refreshHealth());
+document.getElementById("btn-token")?.addEventListener("click", async () => {
+  const res = await apiFetch("/broker/status");
+  const data = await res.json();
+  showToast(data.tokens_valid ? "Tokens valid" : "Tokens invalid", data.tokens_valid ? "ok" : "error");
+});
 
 // ── Init & polling ─────────────────────────────────────────
 

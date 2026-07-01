@@ -611,3 +611,41 @@ main,
 .footer-sep { margin: 0 0.5rem; }
 
 .hidden { display: none; }
+
+/* M7 Header enhancements */
+.header-center { text-align: center; flex: 1; }
+.nifty-quote { display: flex; align-items: baseline; justify-content: center; gap: 0.75rem; }
+.nifty-label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; }
+.nifty-ltp { font-size: 1.5rem; font-weight: 700; color: var(--bull); }
+.nifty-change.positive { color: var(--bull); }
+.nifty-change.negative { color: var(--bear); }
+.bull-bear-gauge { display: flex; gap: 1rem; justify-content: center; margin-top: 0.35rem; font-size: 0.8rem; }
+.bull-pct { color: var(--bull); }
+.bear-pct { color: var(--pink); }
+.header-meta { display: flex; gap: 0.5rem; align-items: center; justify-content: flex-end; }
+.meta-time { font-family: monospace; font-size: 0.9rem; }
+.margin-header { display: flex; gap: 1rem; font-size: 0.75rem; }
+.mh-label { color: var(--text-dim); margin-right: 0.25rem; }
+
+.master-bar {
+  display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0.75rem 1.5rem;
+  max-width: 1400px; margin: 0 auto; border-bottom: 1px solid var(--bg-card-border);
+  position: relative; z-index: 1;
+}
+.btn-danger { background: #cc1144; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+.btn-danger:hover { background: #ff2255; }
+.btn-warn { background: var(--pink-dim); color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+.btn-xs { padding: 0.2rem 0.5rem; font-size: 0.65rem; }
+.engine-controls { display: flex; gap: 0.35rem; margin: 0.5rem 0; flex-wrap: wrap; }
+.engine-mode { color: var(--pink); font-weight: 600; }
+.manual-approvals { max-width: 1400px; margin: 0.5rem auto; padding: 0 1.5rem; position: relative; z-index: 1; }
+.manual-card {
+  background: var(--bg-card); border: 1px solid var(--pink); border-radius: var(--radius);
+  padding: 1rem; margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;
+}
+.log-tabs { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+.log-tab {
+  padding: 0.25rem 0.5rem; font-size: 0.65rem; background: transparent;
+  border: 1px solid var(--bg-card-border); color: var(--text-dim); border-radius: 4px; cursor: pointer;
+}
+.log-tab.active { border-color: var(--pink); color: var(--pink); }
