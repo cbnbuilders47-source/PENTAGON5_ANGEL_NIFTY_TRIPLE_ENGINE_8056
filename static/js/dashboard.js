@@ -387,7 +387,7 @@ btnConnect?.addEventListener("click", async () => {
     const data = await res.json();
     if (data.success) {
       showToast(`Connected · Margin ${formatCurrency(data.available_margin)}`, "ok");
-      await Promise.all([refreshState(), refreshBroker(), refreshPnL(), refreshCandles(), refreshReadiness()]);
+      await refreshDashboardPanels();
     } else {
       showToast(data.error || "Connect failed", "error");
     }
@@ -1089,6 +1089,8 @@ function updateValidationStrip(op) {
   const recClean = recovery.status === "clean" || recovery.status === "unknown";
   set("val-recovery-status", `Recovery: ${(recovery.status || "unknown").toUpperCase()}`, recClean ? "ok" : "warn");
 }
+
+async function refreshOperator() {
   try {
     const res = await apiFetch("/dashboard/operator");
     if (!res.ok) return;
@@ -1100,7 +1102,43 @@ function updateValidationStrip(op) {
     updateAlertTicker(window.__lastDashboardState, data, data.readiness);
     updateMarketSummary(window.__lastDashboardState, data);
     updateNiftyCard(window.__lastDashboardState, lastNiftyCandles, data);
-  } catch { /* silent */ }
+  } catch (err) {
+    console.warn("refreshOperator failed", err);
+  }
+}
+
+async function refreshValidation() {
+  try {
+    const [valRes, manualRes] = await Promise.all([
+      apiFetch("/validation/status"),
+      apiFetch("/validation/manual"),
+    ]);
+    if (!valRes.ok) return;
+    const val = await valRes.json();
+    const manual = manualRes.ok ? await manualRes.json() : {};
+    updateValidationStrip({
+      validation_status: val,
+      manual_validation_status: manual,
+      auto_allowed_by_engine: lastOperatorData?.auto_allowed_by_engine || {},
+      recovery_status: lastOperatorData?.recovery_status || { status: "unknown" },
+    });
+  } catch (err) {
+    console.warn("refreshValidation failed", err);
+  }
+}
+
+async function refreshDashboardPanels() {
+  await Promise.all([
+    refreshState(),
+    refreshBroker(),
+    refreshPnL(),
+    refreshCandles(),
+    refreshReadiness(),
+    refreshOperator(),
+    refreshTimeline(),
+    refreshLogs(),
+    refreshValidation(),
+  ]);
 }
 
 // ── Logs ───────────────────────────────────────────────────
@@ -1359,7 +1397,7 @@ document.getElementById("btn-ws-reconnect")?.addEventListener("click", async () 
   await apiFetch("/broker/disconnect", { method: "POST" });
   await apiFetch("/broker/connect", { method: "POST" });
   showToast("WebSocket reconnect attempted", "info");
-  refreshBroker();
+  await refreshDashboardPanels();
 });
 
 document.getElementById("btn-margin-recalc")?.addEventListener("click", async () => {
@@ -1397,17 +1435,22 @@ document.getElementById("btn-clear-logs")?.addEventListener("click", () => {
 // ── Init ───────────────────────────────────────────────────
 
 function init() {
-  initChartCrosshair();
-  refreshHealth();
-  refreshReadiness();
-  refreshBroker();
-  refreshState();
-  refreshPnL();
-  refreshCandles();
-  refreshLogs();
-  refreshTimeline();
-  refreshOperator();
-  syncMarketSummaryRows();
+  try {
+    initChartCrosshair();
+    refreshHealth();
+    refreshReadiness();
+    refreshBroker();
+    refreshState();
+    refreshPnL();
+    refreshCandles();
+    refreshLogs();
+    refreshTimeline();
+    refreshOperator();
+    refreshValidation();
+    syncMarketSummaryRows();
+  } catch (err) {
+    console.error("dashboard init failed", err);
+  }
   requestAnimationFrame(() => scheduleChartResize());
   setTimeout(scheduleChartResize, 250);
 
