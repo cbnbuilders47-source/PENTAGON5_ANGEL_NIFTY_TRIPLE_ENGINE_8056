@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import threading
+import time
 import uuid
 from collections.abc import Callable
+from datetime import datetime
 
 from app.core.logging import get_logger
 
@@ -35,6 +38,9 @@ class WebSocketManager:
         self._subscriptions: dict[str, tuple[str, str]] = {}
         self._on_tick: Callable[[str, float, int], None] | None = None
         self._lock = threading.Lock()
+        self._last_tick_at: dict[str, datetime] = {}
+        self._stale_threshold_sec = 30
+        self._reconnect_creds: dict | None = None
 
     @property
     def is_connected(self) -> bool:
@@ -54,6 +60,13 @@ class WebSocketManager:
         self._on_tick = on_tick
         self._subscriptions = dict(subscriptions)
         self._token_to_symbol = {token: symbol for symbol, (_, token) in subscriptions.items()}
+        self._reconnect_creds = {
+            "jwt_token": jwt_token,
+            "feed_token": feed_token,
+            "client_code": client_code,
+            "api_key": api_key,
+            "subscriptions": dict(subscriptions),
+        }
 
         try:
             await asyncio.to_thread(
@@ -98,8 +111,9 @@ class WebSocketManager:
             logger.error("WebSocket error: %s", error)
 
         def on_close(_wsapp, *_args) -> None:
-            logger.info("WebSocket closed")
+            logger.info("WebSocket closed — scheduling reconnect")
             self._connected = False
+            self._schedule_reconnect()
 
         sws.on_open = on_open
         sws.on_data = on_data
@@ -137,9 +151,43 @@ class WebSocketManager:
 
         price = float(ltp_raw) / 100.0
         volume = int(message.get("last_traded_quantity") or message.get("volume_trade_for_the_day") or 0)
+        self._last_tick_at[symbol] = datetime.now()
 
         if self._on_tick:
             self._on_tick(symbol, price, volume)
+
+    def get_last_tick_at(self, symbol: str) -> datetime | None:
+        return self._last_tick_at.get(symbol)
+
+    def is_stale(self, symbol: str) -> bool:
+        last = self._last_tick_at.get(symbol)
+        if not last:
+            return True
+        return (datetime.now() - last).total_seconds() > self._stale_threshold_sec
+
+    def _schedule_reconnect(self) -> None:
+        if not self._reconnect_creds:
+            return
+        creds = self._reconnect_creds
+
+        def _reconnect() -> None:
+            time.sleep(3)
+            if self._connected:
+                return
+            logger.info("WebSocket reconnect attempt")
+            try:
+                self._start_ws_thread(
+                    creds["jwt_token"],
+                    creds["feed_token"],
+                    creds["client_code"],
+                    creds["api_key"],
+                    creds["subscriptions"],
+                )
+                self._connected = True
+            except Exception as exc:
+                logger.error("WebSocket reconnect failed: %s", exc)
+
+        threading.Thread(target=_reconnect, daemon=True, name="ws-reconnect").start()
 
     def update_option_subscriptions(self, options: dict[str, tuple[str, str]]) -> None:
         """Resubscribe when ATM strike rolls to new CE/PE tokens."""

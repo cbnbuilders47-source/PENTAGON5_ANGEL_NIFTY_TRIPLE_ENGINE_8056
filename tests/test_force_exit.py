@@ -17,4 +17,4 @@ def test_force_exit_active_in_window():
     status = mgr.evaluate(SessionPhase.FORCE_EXIT)
     assert status.active is True
     assert len(status.actions) == 3
-    assert all(a.action == "WOULD_EXIT_ALL" for a in status.actions)
+    assert all(a.action == "EXIT_ALL" for a in status.actions)

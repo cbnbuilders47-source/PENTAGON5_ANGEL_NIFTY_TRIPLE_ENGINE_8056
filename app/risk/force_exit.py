@@ -47,10 +47,12 @@ class ForceExitManager:
         self._state = state
         self.last_status: ForceExitStatus | None = None
         self._triggered = False
+        self._exit_dispatched = False
 
     def evaluate(self, phase: SessionPhase) -> ForceExitStatus:
         if phase != SessionPhase.FORCE_EXIT:
             self._triggered = False
+            self._exit_dispatched = False
             status = ForceExitStatus(active=False, message="Force exit not required")
             self.last_status = status
             self._state.set_force_exit_status(status.to_dict())
@@ -59,20 +61,20 @@ class ForceExitManager:
         actions = [
             ForceExitAction(
                 engine=name,
-                action="WOULD_EXIT_ALL",
-                reason="15:14 IST force-exit window — execution disabled",
+                action="EXIT_ALL",
+                reason="15:14 IST force-exit window",
             )
             for name in self.ENGINES
         ]
 
         if not self._triggered:
-            logger.warning("FORCE EXIT window active — WOULD_EXIT_ALL for all engines (no orders placed)")
+            logger.warning("FORCE EXIT window active — exiting all positions")
             self._triggered = True
 
         status = ForceExitStatus(
             active=True,
             actions=actions,
-            message="Force-exit framework active — all engines WOULD_EXIT_ALL",
+            message="Force-exit active — all engines exiting",
         )
         self.last_status = status
         self._state.set_force_exit_status(status.to_dict())
@@ -80,3 +82,10 @@ class ForceExitManager:
 
     def reset(self) -> None:
         self._triggered = False
+
+    def consume_force_exit_trigger(self) -> bool:
+        """Return True once when force-exit window first activates."""
+        if self._triggered and getattr(self, "_exit_dispatched", False) is False:
+            self._exit_dispatched = True
+            return True
+        return False

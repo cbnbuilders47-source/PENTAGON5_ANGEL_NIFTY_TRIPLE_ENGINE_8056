@@ -60,7 +60,7 @@ def test_dashboard_page(client):
     res = client.get("/")
     assert res.status_code == 200
     assert "PENTAGON5" in res.text
-    assert "Connect Broker" in res.text
+    assert "Connect Angel" in res.text
     assert "Normal Engine" in res.text
 
 
