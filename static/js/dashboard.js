@@ -1,6 +1,6 @@
 const API = "/api/v1";
 
-const POLL = { state: 3000, candles: 2000, health: 10000, logs: 4000, pnl: 3000, scheduler: 5000 };
+const POLL = { state: 3000, candles: 2000, health: 10000, logs: 4000, pnl: 3000, scheduler: 5000, operator: 4000 };
 
 const ENGINES = ["normal", "wick", "ultra"];
 
@@ -33,16 +33,28 @@ const chartMap = {
 
 const READINESS_LABELS = {
   angel_connected: "Angel Login",
-  jwt_valid: "JWT",
-  feed_token_valid: "Feed Token",
-  websocket_connected: "WebSocket",
-  nifty_tick_fresh: "NIFTY Tick",
-  atm_ce_tick_fresh: "ATM CE",
-  atm_pe_tick_fresh: "ATM PE",
-  margin_fetched: "Margin",
-  instrument_master_loaded: "Instrument Master",
-  expiry_selected: "Expiry / ATM",
-  no_rate_limit: "API Rate",
+  jwt_valid: "JWT Valid",
+  feed_token_valid: "Feed Token Valid",
+  websocket_connected: "WebSocket Connected",
+  margin_fetched: "Margin Fetched",
+  instrument_master_loaded: "Instrument Master Loaded",
+  expiry_selected: "Expiry Selected",
+  nifty_tick_fresh: "NIFTY Tick Fresh",
+  atm_ce_tick_fresh: "ATM CE Tick Fresh",
+  atm_pe_tick_fresh: "ATM PE Tick Fresh",
+  no_rate_limit: "No Rate Limit Issue",
+};
+
+const CHART_COUNTDOWN_IDS = {
+  NIFTY: "countdown-nifty",
+  ATM_CE: "countdown-atm-ce",
+  ATM_PE: "countdown-atm-pe",
+};
+
+const CHART_WAIT_NOTE_IDS = {
+  NIFTY: "wait-note-nifty",
+  ATM_CE: "wait-note-atm-ce",
+  ATM_PE: "wait-note-atm-pe",
 };
 
 const chartState = {};
@@ -59,6 +71,9 @@ let lastNiftyCandles = [];
 let lastAtmCeCandles = [];
 let lastAtmPeCandles = [];
 let currentSchedulerPhase = "OFFLINE";
+let lastOperatorData = null;
+let logFilterText = "";
+let cachedLogLines = [];
 
 const btnConnect = document.getElementById("btn-connect");
 const btnDisconnect = document.getElementById("btn-disconnect");
@@ -75,6 +90,36 @@ function getISTNow() {
   return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
 }
 
+function formatDurationSec(sec) {
+  if (sec == null || Number.isNaN(sec)) return "—";
+  const s = Math.max(0, Math.floor(sec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const r = s % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${r}s`;
+  return `${r}s`;
+}
+
+function formatHoldingTime(entryAtIso) {
+  if (!entryAtIso) return "—";
+  const start = new Date(entryAtIso);
+  if (Number.isNaN(start.getTime())) return "—";
+  const mins = Math.floor((Date.now() - start.getTime()) / 60000);
+  return formatDuration(mins);
+}
+
+function candleCountdownSec() {
+  return 60 - getISTNow().getSeconds();
+}
+
+function updateCandleCountdowns() {
+  const sec = candleCountdownSec();
+  Object.values(CHART_COUNTDOWN_IDS).forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = `1m · ${sec}s`;
+  });
+}
 function formatDuration(totalMins) {
   const h = Math.floor(totalMins / 60);
   const m = totalMins % 60;
@@ -138,6 +183,7 @@ function updateClock() {
   if (dateEl) dateEl.textContent = now.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
   if (brokerTime) brokerTime.textContent = now.toLocaleTimeString("en-IN", { hour12: false });
   updateMarketCountdown();
+  updateCandleCountdowns();
 }
 
 setInterval(updateClock, 1000);
@@ -187,7 +233,7 @@ function drawSparkline(candles) {
   ctx.stroke();
 }
 
-function updateNiftyCard(state, candles) {
+function updateNiftyCard(state, candles, operator) {
   const ltpEl = document.getElementById("nifty-ltp");
   const chgEl = document.getElementById("nifty-change");
   const pctEl = document.getElementById("nifty-change-pct");
@@ -195,6 +241,12 @@ function updateNiftyCard(state, candles) {
   const highEl = document.getElementById("nifty-high");
   const lowEl = document.getElementById("nifty-low");
   const prevEl = document.getElementById("nifty-prev-close");
+  const todayHighEl = document.getElementById("nifty-today-high");
+  const todayLowEl = document.getElementById("nifty-today-low");
+  const trendEl = document.getElementById("nifty-trend");
+  const atmEl = document.getElementById("nifty-atm-strike");
+  const expiryEl = document.getElementById("nifty-expiry");
+  const spreadEl = document.getElementById("nifty-prem-spread");
 
   if (state?.nifty_ltp && ltpEl) {
     ltpEl.textContent = state.nifty_ltp.toFixed(2);
@@ -210,6 +262,10 @@ function updateNiftyCard(state, candles) {
       pctEl.className = `nifty-change-pct ${cls}`;
     }
     if (prevEl) prevEl.textContent = (state.nifty_ltp - pts).toFixed(2);
+    if (trendEl) {
+      trendEl.textContent = pts > 5 ? "Bullish" : pts < -5 ? "Bearish" : "Neutral";
+      trendEl.className = `mono ${pnlClass(pts)}`;
+    }
   }
 
   if (candles?.length) {
@@ -218,6 +274,14 @@ function updateNiftyCard(state, candles) {
     if (openEl) openEl.textContent = candles[0].open.toFixed(2);
     if (highEl) highEl.textContent = dayHigh.toFixed(2);
     if (lowEl) lowEl.textContent = dayLow.toFixed(2);
+    if (todayHighEl) todayHighEl.textContent = (operator?.nifty_day_high ?? dayHigh).toFixed(2);
+    if (todayLowEl) todayLowEl.textContent = (operator?.nifty_day_low ?? dayLow).toFixed(2);
+  }
+
+  if (operator) {
+    if (atmEl && operator.atm_strike) atmEl.textContent = operator.atm_strike;
+    if (expiryEl && operator.expiry) expiryEl.textContent = operator.expiry;
+    if (spreadEl && operator.premium_spread != null) spreadEl.textContent = operator.premium_spread.toFixed(2);
   }
 }
 
@@ -405,12 +469,13 @@ function updateEnginePanel(engine) {
 function engineStatusBadge(decision, mode) {
   const d = (decision || "WAIT").toUpperCase();
   const m = (mode || "MONITOR").toUpperCase();
-  if (d === "BLOCKED") return { text: "BLOCKED", cls: "badge-blocked" };
-  if (d.startsWith("WOULD_BUY") || d === "READY") return { text: "READY", cls: "badge-ready" };
-  if (d === "WOULD_EXIT") return { text: "BLOCKED", cls: "badge-blocked" };
-  if (d === "WAIT" && m === "MONITOR") return { text: "MONITOR", cls: "badge-monitor" };
-  if (d === "WAIT") return { text: "WAIT", cls: "badge-wait" };
-  return { text: d.replace(/_/g, " "), cls: "badge-wait" };
+  if (m === "MANUAL") return { text: "🟣 MANUAL", cls: "badge-manual" };
+  if (m === "AUTO" && d === "WAIT") return { text: "🟠 AUTO", cls: "badge-auto" };
+  if (d === "BLOCKED" || d === "WOULD_EXIT") return { text: "🔴 BLOCKED", cls: "badge-blocked" };
+  if (d.startsWith("WOULD_BUY") || d === "READY") return { text: "🟢 READY", cls: "badge-ready" };
+  if (d === "WAIT" && m === "MONITOR") return { text: "🔵 MONITOR", cls: "badge-monitor" };
+  if (d === "WAIT") return { text: "🟡 WAIT", cls: "badge-wait" };
+  return { text: `🟡 ${d.replace(/_/g, " ")}`, cls: "badge-wait" };
 }
 
 function updateEngineIntelligence(name, intel, livePos) {
@@ -423,13 +488,47 @@ function updateEngineIntelligence(name, intel, livePos) {
   };
 
   const pos = livePos || {};
+  const hasPos = pos && (pos.quantity || pos.entry_price);
   set("engine-side", pos.option_side || "—");
   set("engine-strike", pos.strike || "—");
   set("engine-lots", pos.lots || "—");
   set("engine-qty", pos.quantity || "—");
   set("engine-entry", pos.entry_price != null ? Number(pos.entry_price).toFixed(2) : "—");
   set("engine-ltp", pos.current_ltp != null ? Number(pos.current_ltp).toFixed(2) : "—");
-  set("engine-trailing", pos.trailing_sl ? "ACTIVE" : "OFF");
+  set("engine-trailing", pos.trailing_sl ? String(Number(pos.trailing_sl).toFixed(2)) : "OFF");
+
+  set("engine-pos-status", hasPos ? `${pos.option_side || ""} OPEN`.trim() : "FLAT");
+  set("engine-pos-premium", pos.current_ltp != null ? Number(pos.current_ltp).toFixed(2) : "—");
+  set("engine-pos-target", pos.target != null ? Number(pos.target).toFixed(2) : (intel.expected_target != null ? intel.expected_target.toFixed(2) : "—"));
+  set("engine-pos-sl", pos.stop_loss != null ? Number(pos.stop_loss).toFixed(2) : (intel.expected_sl != null ? intel.expected_sl.toFixed(2) : "—"));
+  set("engine-pos-trail", pos.trailing_sl != null ? Number(pos.trailing_sl).toFixed(2) : "—");
+
+  const livePnlEl = panel.querySelector(".engine-live-pnl");
+  if (livePnlEl) {
+    if (hasPos && pos.entry_price != null && pos.current_ltp != null && pos.quantity) {
+      const pnl = (Number(pos.current_ltp) - Number(pos.entry_price)) * Number(pos.quantity);
+      livePnlEl.textContent = formatCurrency(pnl);
+      livePnlEl.className = `engine-live-pnl ${pnlClass(pnl)}`;
+    } else {
+      livePnlEl.textContent = "—";
+      livePnlEl.className = "engine-live-pnl neutral";
+    }
+  }
+
+  const peak = pos.peak_profit;
+  set("engine-peak-profit", peak != null && hasPos ? formatCurrency(peak) : "—");
+  const rollbackEl = panel.querySelector(".engine-rollback");
+  if (rollbackEl) {
+    if (hasPos && peak != null && pos.entry_price != null && pos.current_ltp != null && pos.quantity) {
+      const current = (Number(pos.current_ltp) - Number(pos.entry_price)) * Number(pos.quantity);
+      const rollback = Math.max(0, Number(peak) - current);
+      rollbackEl.textContent = rollback > 0 ? formatCurrency(rollback) : "—";
+    } else {
+      rollbackEl.textContent = "—";
+    }
+  }
+  set("engine-holding-time", formatHoldingTime(pos.entry_at));
+  set("engine-last-decision-time", intel.updated_at ? new Date(intel.updated_at).toLocaleTimeString("en-IN", { hour12: false }) : "—");
 
   set("engine-confidence", intel.confidence != null ? intel.confidence.toFixed(1) + "%" : "—");
   set("engine-opportunity", intel.opportunity_score != null ? intel.opportunity_score.toFixed(1) + "%" : "—");
@@ -591,9 +690,14 @@ function drawCandles(symbol, candles, hoverIdx = null) {
     updateChartHeader(cfg, []);
     if (cfg.scale) cfg.scale.innerHTML = "";
     if (cfg.time) cfg.time.innerHTML = "";
+    const waitNote = document.getElementById(CHART_WAIT_NOTE_IDS[symbol]);
+    if (waitNote) waitNote.classList.add("hidden");
     chartState[symbol] = null;
     return;
   }
+
+  const waitNote = document.getElementById(CHART_WAIT_NOTE_IDS[symbol]);
+  if (waitNote) waitNote.classList.toggle("hidden", candles.length > 1);
 
   updateChartHeader(cfg, candles);
 
@@ -675,6 +779,30 @@ function drawCandles(symbol, candles, hoverIdx = null) {
   ctx.stroke();
   ctx.setLineDash([]);
 
+  const bubbleX = rightEdge - 2;
+  const bubbleY = yLast;
+  ctx.fillStyle = last.close >= last.open ? "#00e676" : "#ff3d5a";
+  ctx.beginPath();
+  ctx.arc(bubbleX, bubbleY, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#0a0a0e";
+  ctx.font = "bold 9px JetBrains Mono, monospace";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  const label = last.close.toFixed(2);
+  const tw = ctx.measureText(label).width + 8;
+  ctx.fillStyle = last.close >= last.open ? "rgba(0,230,118,0.9)" : "rgba(255,61,90,0.9)";
+  ctx.fillRect(bubbleX - tw - 6, bubbleY - 8, tw, 16);
+  ctx.fillStyle = "#000";
+  ctx.fillText(label, bubbleX - 10, bubbleY);
+
+  if (candles.length === 1) {
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.font = "10px JetBrains Mono, monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("waiting for more ticks", w / 2, h - volH - 14);
+  }
+
   if (hoverIdx != null && candles[hoverIdx]) {
     const c = candles[hoverIdx];
     const x = leftPad + hoverIdx * (barW + 1) + barW / 2;
@@ -711,14 +839,14 @@ function drawCandles(symbol, candles, hoverIdx = null) {
   if (symbol === "NIFTY") {
     lastNiftyCandles = candles;
     drawSparkline(candles);
-    updateNiftyCard(window.__lastDashboardState || {}, candles);
-    updateMarketSummary(window.__lastDashboardState || {});
+    updateNiftyCard(window.__lastDashboardState || {}, candles, lastOperatorData);
+    updateMarketSummary(window.__lastDashboardState || {}, lastOperatorData);
   } else if (symbol === "ATM_CE") {
     lastAtmCeCandles = candles;
-    updateMarketSummary(window.__lastDashboardState || {});
+    updateMarketSummary(window.__lastDashboardState || {}, lastOperatorData);
   } else if (symbol === "ATM_PE") {
     lastAtmPeCandles = candles;
-    updateMarketSummary(window.__lastDashboardState || {});
+    updateMarketSummary(window.__lastDashboardState || {}, lastOperatorData);
   }
 }
 
@@ -780,14 +908,29 @@ function syncMarketSummaryRows() {
   if (note) note.classList.toggle("hidden", visible > 0);
 }
 
-function updateMarketSummary(state) {
+function updateMarketSummary(state, operator) {
   const empty = "—";
+  const op = operator || lastOperatorData || {};
+
   msSet("ms-advances", empty);
   msSet("ms-declines", empty);
-  msSet("ms-unchanged", empty);
-  msSet("ms-fii", empty);
-  msSet("ms-dii", empty);
   msSet("ms-vix", empty);
+  msSet("ms-oi-ce", empty);
+  msSet("ms-oi-pe", empty);
+  msSet("ms-call-writing", empty);
+  msSet("ms-put-writing", empty);
+  msSet("ms-breadth", empty);
+
+  if (state?.bias) {
+    let bullPct = state.bias.direction === "BULL" ? state.bias.confidence_pct :
+      state.bias.direction === "BEAR" ? 100 - state.bias.confidence_pct : 50;
+    bullPct = Math.max(0, Math.min(100, bullPct));
+    msSet("ms-bull-pct", `${bullPct.toFixed(0)}%`);
+    msSet("ms-bear-pct", `${(100 - bullPct).toFixed(0)}%`);
+  } else {
+    msSet("ms-bull-pct", empty);
+    msSet("ms-bear-pct", empty);
+  }
 
   if (lastNiftyCandles.length) {
     const vol = lastNiftyCandles.reduce((s, c) => s + (c.volume || 0), 0);
@@ -795,8 +938,6 @@ function updateMarketSummary(state) {
     const dayHigh = Math.max(...lastNiftyCandles.map((c) => c.high));
     const dayLow = Math.min(...lastNiftyCandles.map((c) => c.low));
     msSet("ms-day-range", `${dayLow.toFixed(0)} – ${dayHigh.toFixed(0)}`);
-    const turnover = lastNiftyCandles.reduce((s, c) => s + ((c.volume || 0) * c.close), 0);
-    if (turnover > 0) msSet("ms-value", `₹${(turnover / 1e7).toFixed(1)} Cr`);
   }
 
   if (state?.nifty_ltp) {
@@ -804,7 +945,14 @@ function updateMarketSummary(state) {
     msSet("ms-maxpain", String(Math.round(state.nifty_ltp / 50) * 50));
   }
 
-  if (lastAtmCeCandles.length && lastAtmPeCandles.length) {
+  if (op.atm_strike) msSet("ms-atm-strike", String(op.atm_strike));
+  if (op.expiry) msSet("ms-expiry", op.expiry);
+  if (op.pcr != null) msSet("ms-pcr", op.pcr.toFixed(2));
+  if (op.ce_premium) msSet("ms-ce-prem", Number(op.ce_premium).toFixed(2));
+  if (op.pe_premium) msSet("ms-pe-prem", Number(op.pe_premium).toFixed(2));
+  if (op.premium_spread != null) msSet("ms-prem-spread", op.premium_spread.toFixed(2));
+
+  if (!op.pcr && lastAtmCeCandles.length && lastAtmPeCandles.length) {
     const ce = lastAtmCeCandles[lastAtmCeCandles.length - 1].close;
     const pe = lastAtmPeCandles[lastAtmPeCandles.length - 1].close;
     if (ce > 0 && pe > 0) msSet("ms-pcr", (pe / ce).toFixed(2));
@@ -813,20 +961,140 @@ function updateMarketSummary(state) {
   syncMarketSummaryRows();
 }
 
+function updateEngineHealth(op, state) {
+  const data = op || {};
+  const st = state || window.__lastDashboardState || {};
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val ?? "—"; };
+
+  const recent = data.execution_recent || [];
+  const lastExec = recent.length ? recent[recent.length - 1] : null;
+  const brokerLat = lastExec?.latency_ms != null ? `${Math.round(lastExec.latency_ms)} ms` : "—";
+
+  const tickAges = data.tick_ages || {};
+  const niftyAge = tickAges.NIFTY;
+  const maxAge = Math.max(...Object.values(tickAges).filter((v) => v != null), 0);
+
+  let lastDecision = "—";
+  if (st.engine_decisions) {
+    const times = Object.values(st.engine_decisions)
+      .map((d) => d.updated_at)
+      .filter(Boolean)
+      .sort()
+      .reverse();
+    if (times[0]) lastDecision = new Date(times[0]).toLocaleTimeString("en-IN", { hour12: false });
+  }
+
+  set("eh-decision-latency", "—");
+  set("eh-broker-latency", brokerLat);
+  set("eh-ws-latency", st.websocket_connected ? "< 100 ms" : "—");
+  set("eh-tick-delay", niftyAge != null ? `${niftyAge}s` : "—");
+  set("eh-tick-age", maxAge ? `${maxAge}s` : "—");
+  set("eh-last-decision", lastDecision);
+  set("eh-last-order", data.last_order_at ? new Date(data.last_order_at).toLocaleTimeString("en-IN", { hour12: false }) : "—");
+  set("eh-scheduler-phase", data.scheduler_phase || currentSchedulerPhase || "—");
+  const nextEv = (data.next_events || [])[0];
+  set("eh-next-event", nextEv ? `${nextEv.label || nextEv.time || "—"}` : "—");
+  set("eh-uptime", formatDurationSec(data.uptime_sec));
+}
+
+function updateOrderMonitor(op) {
+  const order = op?.latest_order;
+  const emptyEl = document.getElementById("order-monitor-empty");
+  const tableEl = document.getElementById("order-monitor-table");
+  if (!order) {
+    emptyEl?.classList.remove("hidden");
+    tableEl?.classList.add("hidden");
+    return;
+  }
+  emptyEl?.classList.add("hidden");
+  tableEl?.classList.remove("hidden");
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val ?? "—"; };
+  const br = order.broker_response || {};
+  set("om-engine", (order.engine || "—").toUpperCase());
+  set("om-action", order.state || "—");
+  set("om-side", br.option_side || br.symbol || "—");
+  set("om-strike", br.strike ?? "—");
+  set("om-qty", order.quantity || "—");
+  set("om-price", order.executed_price != null ? Number(order.executed_price).toFixed(2) : "—");
+  set("om-order-id", order.order_id || "—");
+  set("om-broker-status", br.status || order.state || "—");
+  set("om-latency", order.latency_ms != null ? `${Math.round(order.latency_ms)} ms` : "—");
+  set("om-result", order.message || "—");
+  set("om-updated", order.updated_at ? new Date(order.updated_at).toLocaleTimeString("en-IN", { hour12: false }) : "—");
+}
+
+function updateAlertTicker(state, op, readiness) {
+  const el = document.getElementById("alert-ticker");
+  if (!el) return;
+  const parts = [];
+  const st = state || {};
+  const rd = readiness || op?.readiness || st.readiness;
+
+  if (st.broker_connected) parts.push("Angel Connected");
+  else parts.push("Angel Offline");
+  if (st.websocket_connected) parts.push("WebSocket Stable");
+  else parts.push("WebSocket Offline");
+  if (st.available_margin > 0) parts.push("Margin Updated");
+  if (op?.atm_strike) parts.push(`ATM Strike ${op.atm_strike}`);
+  if (st.new_entries_allowed === false) parts.push("No New Entries");
+  else if (st.broker_connected) parts.push("Waiting for Entry");
+
+  const failed = (rd?.checks || []).filter((c) => !c.passed);
+  if (failed.length) {
+    const label = READINESS_LABELS[failed[0].name] || failed[0].name;
+    parts.push(`Readiness Missing: ${label}`);
+    el.className = "alert-ticker warn";
+  } else if (rd?.ready) {
+    el.className = "alert-ticker ok";
+  } else {
+    el.className = "alert-ticker";
+  }
+
+  const lastOrder = op?.latest_order;
+  if (lastOrder?.state?.includes("CONFIRMED")) {
+    if (lastOrder.state.includes("EXIT")) parts.push("EXIT Confirmed");
+    else parts.push("BUY Confirmed");
+  }
+
+  el.textContent = parts.join(" · ");
+}
+
+async function refreshOperator() {
+  try {
+    const res = await apiFetch("/dashboard/operator");
+    if (!res.ok) return;
+    const data = await res.json();
+    lastOperatorData = data;
+    updateEngineHealth(data, window.__lastDashboardState);
+    updateOrderMonitor(data);
+    updateAlertTicker(window.__lastDashboardState, data, data.readiness);
+    updateMarketSummary(window.__lastDashboardState, data);
+    updateNiftyCard(window.__lastDashboardState, lastNiftyCandles, data);
+  } catch { /* silent */ }
+}
+
 // ── Logs ───────────────────────────────────────────────────
 
 function logLineClass(line) {
   const u = line.toUpperCase();
   if (u.includes("ERROR") || u.includes("CRITICAL") || u.includes("FAILED") || u.includes("EXCEPTION")) return "log-error";
   if (u.includes("WARNING") || u.includes("WARN")) return "log-warning";
+  if (u.includes("EXECUTION") || u.includes("ORDER_SENT") || u.includes("ORDER_CONFIRMED") || u.includes("EXIT_CONFIRMED")) return "log-exec";
   if (u.includes("SUCCESS") || u.includes("CONNECTED") || u.includes("APPROVED") || u.includes("FILLED")) return "log-success";
   if (u.includes("INFO")) return "log-info";
   return "log-dim";
 }
 
+function applyLogFilter(lines) {
+  const q = (logFilterText || "").trim().toLowerCase();
+  if (!q) return lines;
+  return lines.filter((line) => line.toLowerCase().includes(q));
+}
+
 function renderLogLines(lines) {
-  if (!lines.length) return "No log entries yet.";
-  return lines.map((line) => {
+  const filtered = applyLogFilter(lines);
+  if (!filtered.length) return logFilterText ? "No matching log entries." : "No log entries yet.";
+  return filtered.map((line) => {
     const safe = line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     return `<span class="log-line ${logLineClass(line)}">${safe}</span>`;
   }).join("");
@@ -838,9 +1106,10 @@ async function refreshLogs() {
     const res = await apiFetch(`/dashboard/logs?lines=120&log_type=${activeLogTab}`);
     if (!res.ok) return;
     const data = await res.json();
+    cachedLogLines = data.lines || [];
     const output = document.getElementById("logs-output");
     if (!output) return;
-    output.innerHTML = renderLogLines(data.lines || []);
+    output.innerHTML = renderLogLines(cachedLogLines);
     if (logAutoScroll) output.scrollTop = output.scrollHeight;
   } catch { /* silent */ }
 }
@@ -853,6 +1122,12 @@ document.querySelectorAll(".log-tab").forEach((tab) => {
     logsCleared = false;
     refreshLogs();
   });
+});
+
+document.getElementById("log-search")?.addEventListener("input", (e) => {
+  logFilterText = e.target.value || "";
+  const output = document.getElementById("logs-output");
+  if (output) output.innerHTML = renderLogLines(cachedLogLines);
 });
 
 document.getElementById("log-autoscroll")?.addEventListener("change", (e) => {
@@ -893,8 +1168,9 @@ async function refreshState() {
     setBrokerUI(state.broker_connected, state.websocket_connected);
     updateMarginStrip(state);
     updateBullBear(state.bias);
-    updateMarketSummary(state);
-    updateNiftyCard(state, lastNiftyCandles);
+    updateMarketSummary(state, lastOperatorData);
+    updateNiftyCard(state, lastNiftyCandles, lastOperatorData);
+    updateAlertTicker(state, lastOperatorData, state.readiness);
 
     if (state.nifty_ltp) {
       const ltpEl = document.getElementById("nifty-ltp");
@@ -1093,6 +1369,7 @@ function init() {
   refreshCandles();
   refreshLogs();
   refreshTimeline();
+  refreshOperator();
   syncMarketSummaryRows();
   requestAnimationFrame(() => scheduleChartResize());
   setTimeout(scheduleChartResize, 250);
@@ -1105,6 +1382,7 @@ function init() {
   setInterval(refreshCandles, POLL.candles);
   setInterval(refreshLogs, POLL.logs);
   setInterval(refreshTimeline, POLL.scheduler);
+  setInterval(refreshOperator, POLL.operator);
 }
 
 window.addEventListener("resize", scheduleChartResize);

@@ -11,6 +11,7 @@
 </head>
 <body class="terminal">
   <div class="glow-bg"></div>
+  <div id="alert-ticker" class="alert-ticker" aria-live="polite">System initializing…</div>
   <div id="toast" class="toast hidden"></div>
   <div id="manual-approvals" class="manual-approvals hidden"></div>
 
@@ -41,6 +42,12 @@
         <div class="ohlc-cell"><span>High</span><b id="nifty-high" class="mono positive">—</b></div>
         <div class="ohlc-cell"><span>Low</span><b id="nifty-low" class="mono negative">—</b></div>
         <div class="ohlc-cell"><span>Prev Close</span><b id="nifty-prev-close" class="mono">—</b></div>
+        <div class="ohlc-cell"><span>Today High</span><b id="nifty-today-high" class="mono positive">—</b></div>
+        <div class="ohlc-cell"><span>Today Low</span><b id="nifty-today-low" class="mono negative">—</b></div>
+        <div class="ohlc-cell"><span>Trend</span><b id="nifty-trend" class="mono">—</b></div>
+        <div class="ohlc-cell"><span>ATM Strike</span><b id="nifty-atm-strike" class="mono">—</b></div>
+        <div class="ohlc-cell"><span>Expiry</span><b id="nifty-expiry" class="mono">—</b></div>
+        <div class="ohlc-cell"><span>Prem Spread</span><b id="nifty-prem-spread" class="mono">—</b></div>
       </div>
     </div>
 
@@ -139,12 +146,15 @@
     <article class="engine-card panel" id="panel-normal" data-engine="normal">
       <div class="ec-head">
         <h2><span class="ec-icon">⚡</span> Normal Engine</h2>
-        <select class="mode-select" data-engine="normal">
-          <option value="OFF">OFF</option>
-          <option value="MONITOR" selected>MONITOR</option>
-          <option value="MANUAL">MANUAL</option>
-          <option value="AUTO">AUTO</option>
-        </select>
+        <div class="ec-head-right">
+          <span class="engine-status-badge badge-wait">🟡 WAIT</span>
+          <select class="mode-select" data-engine="normal">
+            <option value="OFF">OFF</option>
+            <option value="MONITOR" selected>MONITOR</option>
+            <option value="MANUAL">MANUAL</option>
+            <option value="AUTO">AUTO</option>
+          </select>
+        </div>
       </div>
       <div class="ec-btns">
         <button class="ec-btn start eng-btn-start" data-engine="normal">▶ Start</button>
@@ -154,9 +164,6 @@
         <button class="ec-btn exit eng-btn-exit" data-engine="normal">✕ Exit</button>
       </div>
       <div class="ec-sections engine-intel" data-engine="normal">
-        <div class="ec-status-row">
-          <span class="engine-status-badge badge-wait">WAIT</span>
-        </div>
         <div class="ec-section">
           <div class="ec-section-title">Trade</div>
           <div class="ec-section-grid">
@@ -181,6 +188,21 @@
             <div class="ec-cell"><span>Opportunity</span><b class="engine-opportunity">—</b></div>
             <div class="ec-cell"><span>Liquidity</span><b class="engine-liquidity">—</b></div>
             <div class="ec-cell"><span>Momentum</span><b class="engine-momentum">—</b></div>
+          </div>
+        </div>
+        <div class="ec-section">
+          <div class="ec-section-title">Position Monitor</div>
+          <div class="ec-section-grid cols-2">
+            <div class="ec-cell"><span>Position</span><b class="engine-pos-status">—</b></div>
+            <div class="ec-cell"><span>Premium</span><b class="engine-pos-premium">—</b></div>
+            <div class="ec-cell metric-highlight"><span>Live P&amp;L</span><b class="engine-live-pnl neutral">—</b></div>
+            <div class="ec-cell"><span>Target</span><b class="engine-pos-target">—</b></div>
+            <div class="ec-cell"><span>SL</span><b class="engine-pos-sl">—</b></div>
+            <div class="ec-cell"><span>Trail</span><b class="engine-pos-trail">—</b></div>
+            <div class="ec-cell"><span>Peak Profit</span><b class="engine-peak-profit">—</b></div>
+            <div class="ec-cell"><span>Rollback</span><b class="engine-rollback">—</b></div>
+            <div class="ec-cell"><span>Holding</span><b class="engine-holding-time">—</b></div>
+            <div class="ec-cell"><span>Last Decision</span><b class="engine-last-decision-time">—</b></div>
           </div>
         </div>
         <div class="ec-footer-metrics">
@@ -206,12 +228,15 @@
     <article class="engine-card panel" id="panel-wick" data-engine="wick">
       <div class="ec-head">
         <h2><span class="ec-icon">🔥</span> Wick Engine</h2>
-        <select class="mode-select" data-engine="wick">
-          <option value="OFF">OFF</option>
-          <option value="MONITOR" selected>MONITOR</option>
-          <option value="MANUAL">MANUAL</option>
-          <option value="AUTO">AUTO</option>
-        </select>
+        <div class="ec-head-right">
+          <span class="engine-status-badge badge-wait">🟡 WAIT</span>
+          <select class="mode-select" data-engine="wick">
+            <option value="OFF">OFF</option>
+            <option value="MONITOR" selected>MONITOR</option>
+            <option value="MANUAL">MANUAL</option>
+            <option value="AUTO">AUTO</option>
+          </select>
+        </div>
       </div>
       <div class="ec-btns">
         <button class="ec-btn start eng-btn-start" data-engine="wick">▶ Start</button>
@@ -221,9 +246,6 @@
         <button class="ec-btn exit eng-btn-exit" data-engine="wick">✕ Exit</button>
       </div>
       <div class="ec-sections engine-intel" data-engine="wick">
-        <div class="ec-status-row">
-          <span class="engine-status-badge badge-wait">WAIT</span>
-        </div>
         <div class="ec-section">
           <div class="ec-section-title">Trade</div>
           <div class="ec-section-grid">
@@ -248,6 +270,21 @@
             <div class="ec-cell"><span>Opportunity</span><b class="engine-opportunity">—</b></div>
             <div class="ec-cell"><span>Liquidity</span><b class="engine-liquidity">—</b></div>
             <div class="ec-cell"><span>Momentum</span><b class="engine-momentum">—</b></div>
+          </div>
+        </div>
+        <div class="ec-section">
+          <div class="ec-section-title">Position Monitor</div>
+          <div class="ec-section-grid cols-2">
+            <div class="ec-cell"><span>Position</span><b class="engine-pos-status">—</b></div>
+            <div class="ec-cell"><span>Premium</span><b class="engine-pos-premium">—</b></div>
+            <div class="ec-cell metric-highlight"><span>Live P&amp;L</span><b class="engine-live-pnl neutral">—</b></div>
+            <div class="ec-cell"><span>Target</span><b class="engine-pos-target">—</b></div>
+            <div class="ec-cell"><span>SL</span><b class="engine-pos-sl">—</b></div>
+            <div class="ec-cell"><span>Trail</span><b class="engine-pos-trail">—</b></div>
+            <div class="ec-cell"><span>Peak Profit</span><b class="engine-peak-profit">—</b></div>
+            <div class="ec-cell"><span>Rollback</span><b class="engine-rollback">—</b></div>
+            <div class="ec-cell"><span>Holding</span><b class="engine-holding-time">—</b></div>
+            <div class="ec-cell"><span>Last Decision</span><b class="engine-last-decision-time">—</b></div>
           </div>
         </div>
         <div class="ec-footer-metrics">
@@ -273,12 +310,15 @@
     <article class="engine-card panel" id="panel-ultra" data-engine="ultra">
       <div class="ec-head">
         <h2><span class="ec-icon">🚀</span> Ultra Engine</h2>
-        <select class="mode-select" data-engine="ultra">
-          <option value="OFF">OFF</option>
-          <option value="MONITOR" selected>MONITOR</option>
-          <option value="MANUAL">MANUAL</option>
-          <option value="AUTO">AUTO</option>
-        </select>
+        <div class="ec-head-right">
+          <span class="engine-status-badge badge-wait">🟡 WAIT</span>
+          <select class="mode-select" data-engine="ultra">
+            <option value="OFF">OFF</option>
+            <option value="MONITOR" selected>MONITOR</option>
+            <option value="MANUAL">MANUAL</option>
+            <option value="AUTO">AUTO</option>
+          </select>
+        </div>
       </div>
       <div class="ec-btns">
         <button class="ec-btn start eng-btn-start" data-engine="ultra">▶ Start</button>
@@ -288,9 +328,6 @@
         <button class="ec-btn exit eng-btn-exit" data-engine="ultra">✕ Exit</button>
       </div>
       <div class="ec-sections engine-intel" data-engine="ultra">
-        <div class="ec-status-row">
-          <span class="engine-status-badge badge-wait">WAIT</span>
-        </div>
         <div class="ec-section">
           <div class="ec-section-title">Trade</div>
           <div class="ec-section-grid">
@@ -315,6 +352,21 @@
             <div class="ec-cell"><span>Opportunity</span><b class="engine-opportunity">—</b></div>
             <div class="ec-cell"><span>Liquidity</span><b class="engine-liquidity">—</b></div>
             <div class="ec-cell"><span>Momentum</span><b class="engine-momentum">—</b></div>
+          </div>
+        </div>
+        <div class="ec-section">
+          <div class="ec-section-title">Position Monitor</div>
+          <div class="ec-section-grid cols-2">
+            <div class="ec-cell"><span>Position</span><b class="engine-pos-status">—</b></div>
+            <div class="ec-cell"><span>Premium</span><b class="engine-pos-premium">—</b></div>
+            <div class="ec-cell metric-highlight"><span>Live P&amp;L</span><b class="engine-live-pnl neutral">—</b></div>
+            <div class="ec-cell"><span>Target</span><b class="engine-pos-target">—</b></div>
+            <div class="ec-cell"><span>SL</span><b class="engine-pos-sl">—</b></div>
+            <div class="ec-cell"><span>Trail</span><b class="engine-pos-trail">—</b></div>
+            <div class="ec-cell"><span>Peak Profit</span><b class="engine-peak-profit">—</b></div>
+            <div class="ec-cell"><span>Rollback</span><b class="engine-rollback">—</b></div>
+            <div class="ec-cell"><span>Holding</span><b class="engine-holding-time">—</b></div>
+            <div class="ec-cell"><span>Last Decision</span><b class="engine-last-decision-time">—</b></div>
           </div>
         </div>
         <div class="ec-footer-metrics">
@@ -349,6 +401,7 @@
           <span class="ch-ltp" id="ltp-nifty">—</span>
           <span class="ch-chg" id="chg-nifty">—</span>
           <span class="ch-ohlc" id="ohlc-nifty">O — H — L — C —</span>
+          <span class="ch-countdown" id="countdown-nifty">1m · —s</span>
         </div>
         <span class="ch-arrow">▾</span>
       </div>
@@ -359,6 +412,7 @@
         <div class="price-scale" id="scale-nifty"></div>
       </div>
       <div class="time-scale" id="time-nifty"></div>
+      <p class="chart-wait-note hidden" id="wait-note-nifty">Waiting for more ticks…</p>
     </div>
 
     <div class="chart-card panel" data-symbol="ATM_CE">
@@ -368,6 +422,7 @@
           <span class="ch-ltp" id="ltp-atm-ce">—</span>
           <span class="ch-chg" id="chg-atm-ce">—</span>
           <span class="ch-ohlc" id="ohlc-atm-ce">O — H — L — C —</span>
+          <span class="ch-countdown" id="countdown-atm-ce">1m · —s</span>
         </div>
         <span class="ch-arrow">▾</span>
       </div>
@@ -378,6 +433,7 @@
         <div class="price-scale" id="scale-atm-ce"></div>
       </div>
       <div class="time-scale" id="time-atm-ce"></div>
+      <p class="chart-wait-note hidden" id="wait-note-atm-ce">Waiting for more ticks…</p>
     </div>
 
     <div class="chart-card panel" data-symbol="ATM_PE">
@@ -387,6 +443,7 @@
           <span class="ch-ltp" id="ltp-atm-pe">—</span>
           <span class="ch-chg" id="chg-atm-pe">—</span>
           <span class="ch-ohlc" id="ohlc-atm-pe">O — H — L — C —</span>
+          <span class="ch-countdown" id="countdown-atm-pe">1m · —s</span>
         </div>
         <span class="ch-arrow">▾</span>
       </div>
@@ -397,21 +454,76 @@
         <div class="price-scale" id="scale-atm-pe"></div>
       </div>
       <div class="time-scale" id="time-atm-pe"></div>
+      <p class="chart-wait-note hidden" id="wait-note-atm-pe">Waiting for more ticks…</p>
     </div>
 
-    <aside class="market-summary panel">
+    <aside class="right-stack">
+    <div class="market-summary panel">
       <h3 class="section-title">Market Summary</h3>
       <table class="ms-table">
         <tbody>
-          <tr data-ms="advances"><td>Advances</td><td id="ms-advances" class="positive mono">—</td><td>Total Volume</td><td id="ms-volume" class="mono">—</td></tr>
-          <tr data-ms="declines"><td>Declines</td><td id="ms-declines" class="negative mono">—</td><td>Total Value</td><td id="ms-value" class="mono">—</td></tr>
-          <tr data-ms="unchanged"><td>Unchanged</td><td id="ms-unchanged" class="mono">—</td><td>VIX</td><td id="ms-vix" class="mono">—</td></tr>
-          <tr data-ms="pcr"><td>PCR</td><td id="ms-pcr" class="mono">—</td><td>Max Pain</td><td id="ms-maxpain" class="mono">—</td></tr>
-          <tr data-ms="fii"><td>FII Cash</td><td id="ms-fii" class="positive mono">—</td><td>DII Cash</td><td id="ms-dii" class="positive mono">—</td></tr>
-          <tr data-ms="nifty"><td>NIFTY LTP</td><td id="ms-nifty-ltp" class="mono">—</td><td>Day Range</td><td id="ms-day-range" class="mono">—</td></tr>
+          <tr data-ms="nifty"><td>NIFTY LTP</td><td id="ms-nifty-ltp" class="mono">—</td></tr>
+          <tr data-ms="atm"><td>ATM Strike</td><td id="ms-atm-strike" class="mono">—</td></tr>
+          <tr data-ms="expiry"><td>Expiry</td><td id="ms-expiry" class="mono">—</td></tr>
+          <tr data-ms="pcr"><td>PCR</td><td id="ms-pcr" class="mono">—</td></tr>
+          <tr data-ms="maxpain"><td>Max Pain</td><td id="ms-maxpain" class="mono">—</td></tr>
+          <tr data-ms="vix"><td>India VIX</td><td id="ms-vix" class="mono">—</td></tr>
+          <tr data-ms="ce-prem"><td>CE Premium</td><td id="ms-ce-prem" class="mono">—</td></tr>
+          <tr data-ms="pe-prem"><td>PE Premium</td><td id="ms-pe-prem" class="mono">—</td></tr>
+          <tr data-ms="spread"><td>CE/PE Spread</td><td id="ms-prem-spread" class="mono">—</td></tr>
+          <tr data-ms="oi-ce"><td>Highest OI CE</td><td id="ms-oi-ce" class="mono">—</td></tr>
+          <tr data-ms="oi-pe"><td>Highest OI PE</td><td id="ms-oi-pe" class="mono">—</td></tr>
+          <tr data-ms="cw"><td>Call Writing</td><td id="ms-call-writing" class="mono">—</td></tr>
+          <tr data-ms="pw"><td>Put Writing</td><td id="ms-put-writing" class="mono">—</td></tr>
+          <tr data-ms="breadth"><td>Market Breadth</td><td id="ms-breadth" class="mono">—</td></tr>
+          <tr data-ms="bull"><td>Bull %</td><td id="ms-bull-pct" class="positive mono">—</td></tr>
+          <tr data-ms="bear"><td>Bear %</td><td id="ms-bear-pct" class="negative mono">—</td></tr>
+          <tr data-ms="advances"><td>Advances</td><td id="ms-advances" class="positive mono">—</td></tr>
+          <tr data-ms="declines"><td>Declines</td><td id="ms-declines" class="negative mono">—</td></tr>
+          <tr data-ms="volume"><td>Total Volume</td><td id="ms-volume" class="mono">—</td></tr>
+          <tr data-ms="day-range"><td>Day Range</td><td id="ms-day-range" class="mono">—</td></tr>
         </tbody>
       </table>
       <p id="ms-empty-note" class="ms-empty-note hidden">Live market breadth data unavailable — showing NIFTY session stats when connected.</p>
+    </div>
+
+    <div class="engine-health panel">
+      <h3 class="section-title">Engine Health</h3>
+      <table class="health-table">
+        <tbody>
+          <tr><td>Decision Latency</td><td id="eh-decision-latency" class="mono">—</td></tr>
+          <tr><td>Broker API Latency</td><td id="eh-broker-latency" class="mono">—</td></tr>
+          <tr><td>WebSocket Latency</td><td id="eh-ws-latency" class="mono">—</td></tr>
+          <tr><td>Tick Delay</td><td id="eh-tick-delay" class="mono">—</td></tr>
+          <tr><td>Last Tick Age</td><td id="eh-tick-age" class="mono">—</td></tr>
+          <tr><td>Last Decision</td><td id="eh-last-decision" class="mono">—</td></tr>
+          <tr><td>Last Order</td><td id="eh-last-order" class="mono">—</td></tr>
+          <tr><td>Scheduler Phase</td><td id="eh-scheduler-phase" class="mono">—</td></tr>
+          <tr><td>Next Event</td><td id="eh-next-event" class="mono">—</td></tr>
+          <tr><td>Uptime</td><td id="eh-uptime" class="mono">—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="order-monitor panel">
+      <h3 class="section-title">Latest Order</h3>
+      <div id="order-monitor-empty" class="order-empty">No live order yet</div>
+      <table id="order-monitor-table" class="order-table hidden">
+        <tbody>
+          <tr><td>Engine</td><td id="om-engine" class="mono">—</td></tr>
+          <tr><td>Action</td><td id="om-action" class="mono">—</td></tr>
+          <tr><td>Side</td><td id="om-side" class="mono">—</td></tr>
+          <tr><td>Strike</td><td id="om-strike" class="mono">—</td></tr>
+          <tr><td>Qty</td><td id="om-qty" class="mono">—</td></tr>
+          <tr><td>Price</td><td id="om-price" class="mono">—</td></tr>
+          <tr><td>Order ID</td><td id="om-order-id" class="mono">—</td></tr>
+          <tr><td>Broker Status</td><td id="om-broker-status" class="mono">—</td></tr>
+          <tr><td>Latency</td><td id="om-latency" class="mono">—</td></tr>
+          <tr><td>Result</td><td id="om-result" class="mono">—</td></tr>
+          <tr><td>Updated</td><td id="om-updated" class="mono">—</td></tr>
+        </tbody>
+      </table>
+    </div>
     </aside>
   </section>
 
@@ -431,6 +543,7 @@
           <button class="log-tab" data-log="execution">Execution</button>
         </div>
         <div class="log-controls">
+          <input type="search" id="log-search" class="log-search" placeholder="Filter logs…" />
           <label class="toggle-label"><input type="checkbox" id="log-autoscroll" checked /> Auto-scroll</label>
           <button id="btn-pause-logs" class="mc-btn sm">Pause</button>
           <button id="btn-clear-logs-view" class="mc-btn sm">Clear</button>

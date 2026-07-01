@@ -287,6 +287,8 @@ class ExecutionController:
             "stop_loss": signal.stop_loss,
             "trailing_sl": signal.trailing_sl,
             "entry_order_id": order_id,
+            "entry_at": datetime.now().isoformat(),
+            "peak_profit": 0.0,
         }
         self._state.set_live_position(signal.engine, position)
         self._state.engines[signal.engine].open_positions = 1

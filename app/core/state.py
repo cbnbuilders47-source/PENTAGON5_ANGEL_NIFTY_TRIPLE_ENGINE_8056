@@ -81,6 +81,8 @@ class AppState:
     engines: dict[str, EngineState] = field(default_factory=dict)
     candles: dict[str, list[CandleSnapshot]] = field(default_factory=dict)
     last_updated: datetime = field(default_factory=datetime.now)
+    started_at: datetime = field(default_factory=datetime.now)
+    last_order_at: datetime | None = None
 
     def __post_init__(self) -> None:
         for name, pct in self.allocations.items():
@@ -188,6 +190,12 @@ class AppState:
                 side = str(pos.get("option_side", "")).upper()
                 if feed_symbol == f"ATM_{side}":
                     pos["current_ltp"] = price
+                    entry = float(pos.get("entry_price") or 0)
+                    qty = int(pos.get("quantity") or 0)
+                    unrealized = (price - entry) * qty
+                    peak = float(pos.get("peak_profit") or unrealized)
+                    if unrealized > peak:
+                        pos["peak_profit"] = unrealized
                     updated = True
             if updated:
                 self.last_updated = datetime.now()
@@ -208,6 +216,9 @@ class AppState:
             self.execution_results.append(result)
             if len(self.execution_results) > 200:
                 self.execution_results = self.execution_results[-200:]
+            state_val = result.get("state", "")
+            if state_val in ("ORDER_CONFIRMED", "POSITION_ACTIVE", "EXIT_CONFIRMED"):
+                self.last_order_at = datetime.now()
             self.last_updated = datetime.now()
 
     def record_trade(self, engine: str, pos: dict, exit_price: float, exit_order_id: str, pnl: float, reason: str) -> None:
