@@ -1,0 +1,3 @@
+2026-07-01 17:57:00,912 | INFO     | app.storage.db | Database engine initialized: sqlite:////Users/pentagon/Downloads/PENTAGON5_ANGEL_NIFTY_TRIPLE_ENGINE_8056/data/pentagon5.db
+2026-07-01 17:57:00,913 | INFO     | app.storage.db | Database tables initialized
+2026-07-01 17:57:00,913 | INFO     | app.main | PENTAGON5 ANGEL NIFTY TRIPLE ENGINE v0.1.0 starting on port 8056

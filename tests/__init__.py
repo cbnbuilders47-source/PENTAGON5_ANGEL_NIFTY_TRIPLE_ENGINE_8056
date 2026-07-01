@@ -1,0 +1,1 @@
+"""Test suite for PENTAGON5 ANGEL NIFTY TRIPLE ENGINE."""

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ app_name }}</title>
+  <link rel="stylesheet" href="/static/css/dashboard.css" />
+</head>
+<body>
+  <div class="glow-bg"></div>
+  <header class="header">
+    <div class="brand">
+      <span class="brand-mark">P5</span>
+      <div>
+        <h1>{{ app_name }}</h1>
+        <p class="subtitle">NIFTY Options · LIVE · Port 8056</p>
+      </div>
+    </div>
+    <div class="status-pills">
+      <span id="session-phase" class="pill">OFFLINE</span>
+      <span id="broker-status" class="pill pill-warn">BROKER OFFLINE</span>
+      <span class="pill pill-live">LIVE ONLY</span>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="card bias-card">
+      <h2>Market Bias</h2>
+      <div id="bias-display" class="bias-display neutral">
+        <span id="bias-direction" class="bias-label">NEUTRAL</span>
+        <span id="bias-confidence" class="bias-pct">0%</span>
+      </div>
+      <p id="bias-locked" class="bias-locked hidden">Bias Locked</p>
+    </section>
+
+    <section class="card margin-card">
+      <h2>Available Margin</h2>
+      <p id="available-margin" class="big-number">₹0.00</p>
+      <p class="hint">Auto-fetched from Angel after login</p>
+    </section>
+
+    <section class="card allocation-card">
+      <h2>Engine Allocation</h2>
+      <div class="alloc-row">
+        <label>Normal <span id="normal-val">30%</span></label>
+        <input type="range" id="normal-slider" min="0" max="100" value="30" />
+      </div>
+      <div class="alloc-row">
+        <label>Wick <span id="wick-val">30%</span></label>
+        <input type="range" id="wick-slider" min="0" max="100" value="30" />
+      </div>
+      <div class="alloc-row">
+        <label>Ultra <span id="ultra-val">40%</span></label>
+        <input type="range" id="ultra-slider" min="0" max="100" value="40" />
+      </div>
+      <div class="alloc-total">
+        Total: <span id="alloc-total">100%</span>
+        <span id="alloc-error" class="alloc-error hidden">Must equal 100%</span>
+      </div>
+      <button id="save-alloc" class="btn-primary" disabled>Save Allocation</button>
+    </section>
+
+    <section class="card engines-card">
+      <h2>Engines</h2>
+      <div id="engines-list" class="engines-list"></div>
+    </section>
+
+    <section class="card candles-card span-2">
+      <h2>Live 1-Minute Candles</h2>
+      <div class="candles-grid">
+        <div class="candle-panel" data-symbol="NIFTY">
+          <h3>NIFTY</h3>
+          <canvas id="chart-nifty" width="400" height="180"></canvas>
+        </div>
+        <div class="candle-panel" data-symbol="ATM_CE">
+          <h3>ATM CE</h3>
+          <canvas id="chart-atm-ce" width="400" height="180"></canvas>
+        </div>
+        <div class="candle-panel" data-symbol="ATM_PE">
+          <h3>ATM PE</h3>
+          <canvas id="chart-atm-pe" width="400" height="180"></canvas>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span id="last-updated">—</span>
+  </footer>
+
+  <script src="/static/js/dashboard.js"></script>
+</body>
+</html>
