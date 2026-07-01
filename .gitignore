@@ -6,3 +6,17 @@ __pycache__/
 .pytest_cache/
 logs/*.log
 data/OpenAPIScripMaster.json
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Runtime files
+.env
+.venv/
+logs/*.log
+reports/*.xlsx
+data/*.db
+data/*.sqlite
+data/*.sqlite3
