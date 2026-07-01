@@ -112,3 +112,21 @@ async def test_exit_all():
     ctrl._orders.confirm_order_execution = AsyncMock(return_value={"success": True, "executed_price": 110.0})
     results = await ctrl.exit_all(ExitReason.FORCE_EXIT)
     assert len(results) == 1
+
+
+@pytest.mark.asyncio
+async def test_buy_blocked_when_position_open():
+    state = AppState()
+    state.set_available_margin(100000)
+    state.set_live_position("normal", {
+        "tradingsymbol": "NIFTY24900CE",
+        "token": "1",
+        "quantity": 65,
+        "entry_price": 100.0,
+        "option_side": "CE",
+    })
+    ctrl = _make_controller(state)
+    ctrl.set_engine_mode("normal", EngineOperatingMode.AUTO)
+    result = await ctrl.process_signal(_signal())
+    assert result.state == ExecutionState.BLOCKED_BY_RISK
+    assert "open position" in result.message.lower()

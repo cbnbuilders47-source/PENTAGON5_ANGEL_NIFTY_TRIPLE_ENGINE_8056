@@ -180,6 +180,18 @@ class AppState:
             self.live_positions.pop(engine, None)
             self.last_updated = datetime.now()
 
+    def update_position_ltp_from_tick(self, feed_symbol: str, price: float) -> None:
+        """Refresh open-position LTP from ATM option ticks for exit monitoring."""
+        with self._lock:
+            updated = False
+            for pos in self.live_positions.values():
+                side = str(pos.get("option_side", "")).upper()
+                if feed_symbol == f"ATM_{side}":
+                    pos["current_ltp"] = price
+                    updated = True
+            if updated:
+                self.last_updated = datetime.now()
+
     def set_pending_approval(self, approval: dict) -> None:
         with self._lock:
             self.pending_approvals = [a for a in self.pending_approvals if a.get("approval_id") != approval.get("approval_id")]

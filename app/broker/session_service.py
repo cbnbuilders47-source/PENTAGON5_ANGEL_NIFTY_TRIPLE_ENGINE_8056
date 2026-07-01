@@ -85,6 +85,7 @@ class BrokerSessionService:
                 "ATM_PE": ("NFO", pe_token),
             },
             on_tick=self._handle_tick,
+            on_status_change=self._on_ws_status_change,
         )
         if not ws_ok:
             self._state.websocket_connected = False
@@ -107,8 +108,13 @@ class BrokerSessionService:
         self._state.websocket_connected = False
         logger.info("Broker session disconnected")
 
+    def _on_ws_status_change(self, connected: bool) -> None:
+        self._state.websocket_connected = connected
+
     def _handle_tick(self, symbol: str, price: float, volume: int = 0) -> None:
         self._candles.on_tick(symbol, price, volume)
+        if symbol in ("ATM_CE", "ATM_PE"):
+            self._state.update_position_ltp_from_tick(symbol, price)
         if symbol == "NIFTY":
             self._state.update_nifty_quote(price)
 

@@ -194,6 +194,10 @@ class ExecutionController:
             lifecycle.transition(ExecutionState.BLOCKED_BY_RISK)
             return "Kill switch active"
 
+        if signal.action.startswith("BUY") and signal.engine in self._state.live_positions:
+            lifecycle.transition(ExecutionState.BLOCKED_BY_RISK)
+            return f"Engine {signal.engine} already has open position"
+
         if signal.action.startswith("BUY") and not self._scheduler.new_entries_allowed:
             lifecycle.transition(ExecutionState.BLOCKED_BY_TIME)
             return "New entries blocked by session schedule"

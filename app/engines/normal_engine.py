@@ -116,10 +116,16 @@ class NormalEngine:
         ctx: TradingContext,
         metrics: AnalysisMetrics,
     ) -> EngineDecisionSnapshot:
-        ltp = ctx.nifty_candles[-1].close if ctx.nifty_candles else 0.0
-        target = round(ltp * 1.008, 2) if ltp else None
-        sl = round(ltp * 0.996, 2) if ltp else None
-        trailing = round(ltp * 0.997, 2) if ltp else None
+        nifty_ltp = ctx.nifty_candles[-1].close if ctx.nifty_candles else 0.0
+        premium = nifty_ltp
+        if decision == NormalDecision.WOULD_BUY_CE.value and ctx.atm_ce_candles:
+            premium = ctx.atm_ce_candles[-1].close
+        elif decision == NormalDecision.WOULD_BUY_PE.value and ctx.atm_pe_candles:
+            premium = ctx.atm_pe_candles[-1].close
+
+        target = round(premium * 1.008, 2) if premium else None
+        sl = round(premium * 0.996, 2) if premium else None
+        trailing = round(premium * 0.997, 2) if premium else None
 
         snap = EngineDecisionSnapshot(
             engine=self.NAME,

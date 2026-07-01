@@ -23,25 +23,25 @@ class UltraEngine:
 
     def evaluate(self, ctx: TradingContext, allocated_margin: float, has_live_position: bool = False) -> EngineDecisionSnapshot:
         if not ctx.broker_connected:
-            return self._finalize(UltraDecision.WAIT.value, ["Broker not connected"], ctx, None)
+            return self._finalize(UltraDecision.WAIT.value, ["Broker not connected"], ctx, None, None)
 
         if force_exit_required(ctx.session_phase) and has_live_position:
-            return self._finalize(UltraDecision.WOULD_EXIT.value, ["Force exit window"], ctx, None)
+            return self._finalize(UltraDecision.WOULD_EXIT.value, ["Force exit window"], ctx, None, None)
 
         if not new_entries_allowed(ctx.session_phase) and not has_live_position:
-            return self._finalize(UltraDecision.WAIT.value, ["Outside trading window"], ctx, None)
+            return self._finalize(UltraDecision.WAIT.value, ["Outside trading window"], ctx, None, None)
 
         if allocated_margin <= 0:
-            return self._finalize(UltraDecision.WAIT.value, ["Insufficient margin"], ctx, None)
+            return self._finalize(UltraDecision.WAIT.value, ["Insufficient margin"], ctx, None, None)
 
-        premium = ctx.atm_ce_candles if ctx.bias_direction.value == "BULL" else ctx.atm_pe_candles
-        if not premium:
-            premium = ctx.atm_ce_candles or ctx.atm_pe_candles
+        premium_candles = ctx.atm_ce_candles if ctx.bias_direction.value == "BULL" else ctx.atm_pe_candles
+        if not premium_candles:
+            premium_candles = ctx.atm_ce_candles or ctx.atm_pe_candles
 
-        signal = analyze_ultra(ctx.nifty_candles, premium)
+        signal = analyze_ultra(ctx.nifty_candles, premium_candles)
 
         if has_live_position:
-            return self._finalize(UltraDecision.WAIT.value, signal.reasons + ["Holding position — monitoring exit"], ctx, signal)
+            return self._finalize(UltraDecision.WAIT.value, signal.reasons + ["Holding position — monitoring exit"], ctx, signal, premium_candles)
 
         if signal.opportunity_rank < 65:
             return self._finalize(
@@ -49,17 +49,18 @@ class UltraEngine:
                 signal.reasons + ["Opportunity rank below threshold"],
                 ctx,
                 signal,
+                premium_candles,
             )
 
         if signal.early_reversal and not signal.breakout:
-            return self._finalize(UltraDecision.WAIT.value, signal.reasons + ["Reversal risk"], ctx, signal)
+            return self._finalize(UltraDecision.WAIT.value, signal.reasons + ["Reversal risk"], ctx, signal, premium_candles)
 
         if signal.momentum_strength >= 65 and (signal.breakout or signal.trend_continuation):
             self._sm.advance_for_decision(UltraDecision.WOULD_BUY.value)
-            return self._finalize(UltraDecision.WOULD_BUY.value, signal.reasons, ctx, signal)
+            return self._finalize(UltraDecision.WOULD_BUY.value, signal.reasons, ctx, signal, premium_candles)
 
         self._sm.advance_for_decision(UltraDecision.READY.value)
-        return self._finalize(UltraDecision.READY.value, signal.reasons + ["Monitoring momentum"], ctx, signal)
+        return self._finalize(UltraDecision.READY.value, signal.reasons + ["Monitoring momentum"], ctx, signal, premium_candles)
 
     def _finalize(
         self,
@@ -67,8 +68,9 @@ class UltraEngine:
         reasons: list[str],
         ctx: TradingContext,
         signal,
+        premium_candles,
     ) -> EngineDecisionSnapshot:
-        ltp = ctx.nifty_candles[-1].close if ctx.nifty_candles else 0.0
+        premium_ltp = premium_candles[-1].close if premium_candles else 0.0
         confidence = signal.opportunity_rank if signal else 0.0
         snap = EngineDecisionSnapshot(
             engine=self.NAME,
@@ -81,9 +83,9 @@ class UltraEngine:
             momentum=signal.momentum_strength if signal else 0.0,
             liquidity=signal.market_speed if signal else 0.0,
             market_health=signal.premium_acceleration if signal else 0.0,
-            expected_target=round(ltp * (1 + (signal.dynamic_target_pct / 100)), 2) if signal and ltp else None,
-            expected_sl=round(ltp * 0.994, 2) if ltp else None,
-            trailing_sl=round(ltp * (1 - signal.profit_lock_pct / 100), 2) if signal and ltp else None,
+            expected_target=round(premium_ltp * (1 + (signal.dynamic_target_pct / 100)), 2) if signal and premium_ltp else None,
+            expected_sl=round(premium_ltp * 0.994, 2) if premium_ltp else None,
+            trailing_sl=round(premium_ltp * (1 - signal.profit_lock_pct / 100), 2) if signal and premium_ltp else None,
             updated_at=ctx.now,
         )
         self.last_snapshot = snap

@@ -37,6 +37,7 @@ class WebSocketManager:
         self._token_to_symbol: dict[str, str] = {}
         self._subscriptions: dict[str, tuple[str, str]] = {}
         self._on_tick: Callable[[str, float, int], None] | None = None
+        self._on_status_change: Callable[[bool], None] | None = None
         self._lock = threading.Lock()
         self._last_tick_at: dict[str, datetime] = {}
         self._stale_threshold_sec = 30
@@ -54,10 +55,12 @@ class WebSocketManager:
         api_key: str,
         subscriptions: dict[str, tuple[str, str]],
         on_tick: Callable[[str, float, int], None],
+        on_status_change: Callable[[bool], None] | None = None,
     ) -> bool:
         await self.disconnect()
 
         self._on_tick = on_tick
+        self._on_status_change = on_status_change
         self._subscriptions = dict(subscriptions)
         self._token_to_symbol = {token: symbol for symbol, (_, token) in subscriptions.items()}
         self._reconnect_creds = {
@@ -82,6 +85,8 @@ class WebSocketManager:
             return False
 
         self._connected = True
+        if self._on_status_change:
+            self._on_status_change(True)
         return True
 
     def _start_ws_thread(
@@ -106,6 +111,9 @@ class WebSocketManager:
         def on_open(_wsapp) -> None:
             logger.info("WebSocket open — subscribing to %s", list(subscriptions.keys()))
             sws.subscribe(correlation_id, _WS_MODE_LTP, token_list)
+            self._connected = True
+            if self._on_status_change:
+                self._on_status_change(True)
 
         def on_error(_wsapp, error) -> None:
             logger.error("WebSocket error: %s", error)
@@ -113,6 +121,8 @@ class WebSocketManager:
         def on_close(_wsapp, *_args) -> None:
             logger.info("WebSocket closed — scheduling reconnect")
             self._connected = False
+            if self._on_status_change:
+                self._on_status_change(False)
             self._schedule_reconnect()
 
         sws.on_open = on_open
@@ -183,9 +193,10 @@ class WebSocketManager:
                     creds["api_key"],
                     creds["subscriptions"],
                 )
-                self._connected = True
             except Exception as exc:
                 logger.error("WebSocket reconnect failed: %s", exc)
+                if self._on_status_change:
+                    self._on_status_change(False)
 
         threading.Thread(target=_reconnect, daemon=True, name="ws-reconnect").start()
 
@@ -220,6 +231,8 @@ class WebSocketManager:
         self._ws = None
         self._thread = None
         self._connected = False
+        if self._on_status_change:
+            self._on_status_change(False)
         self._token_to_symbol.clear()
         self._subscriptions.clear()
         self._on_tick = None
