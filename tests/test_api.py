@@ -79,3 +79,26 @@ def test_dashboard_logs(client):
     data = res.json()
     assert "lines" in data
     assert "count" in data
+
+
+def test_risk_status(client):
+    res = client.get("/api/v1/risk/status")
+    assert res.status_code == 200
+    data = res.json()
+    assert "trading_allowed" in data
+    assert "gates" in data
+
+
+def test_scheduler_status(client):
+    res = client.get("/api/v1/scheduler/status")
+    assert res.status_code == 200
+    data = res.json()
+    assert "current_phase" in data
+
+
+def test_broker_readiness(client):
+    res = client.get("/api/v1/broker/readiness")
+    assert res.status_code == 200
+    data = res.json()
+    assert "ready" in data
+    assert "checks" in data

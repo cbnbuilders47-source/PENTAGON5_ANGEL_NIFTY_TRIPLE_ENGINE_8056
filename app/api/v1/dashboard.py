@@ -37,6 +37,12 @@ async def get_state(request: Request) -> StateResponse:
         ai_confidence=state.ai_confidence,
         preferred_engine=state.preferred_engine,
         engine_decisions=state.engine_decisions,
+        readiness=state.readiness_report,
+        risk=state.risk_status,
+        force_exit=state.force_exit_status,
+        new_entries_allowed=state.new_entries_allowed,
+        force_exit_active=state.force_exit_active,
+        kill_switch_active=state.kill_switch_active,
         allocations=AllocationResponse(
             normal=alloc.get("normal", 0),
             wick=alloc.get("wick", 0),

@@ -27,6 +27,7 @@ class InstrumentMaster:
         self.nifty_token: str = ""
         self.nifty_tradingsymbol: str = ""
         self.nifty_exchange: str = "NSE"
+        self.selected_expiry: str | None = None
 
     @property
     def is_loaded(self) -> bool:
@@ -126,6 +127,7 @@ class InstrumentMaster:
         if not expiries:
             return rows
         nearest = expiries[0]
+        self.selected_expiry = nearest.strftime("%d%b%Y").upper()
         return [row for row in rows if self._parse_expiry(row.get("expiry", "")) == nearest]
 
     @staticmethod

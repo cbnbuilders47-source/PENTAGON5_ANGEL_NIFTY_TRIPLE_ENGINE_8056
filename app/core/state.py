@@ -58,6 +58,12 @@ class AppState:
     ai_confidence: float = 0.0
     preferred_engine: str = ENGINE_NORMAL
     engine_decisions: dict[str, dict] = field(default_factory=dict)
+    readiness_report: dict = field(default_factory=dict)
+    risk_status: dict = field(default_factory=dict)
+    force_exit_status: dict = field(default_factory=dict)
+    new_entries_allowed: bool = False
+    force_exit_active: bool = False
+    kill_switch_active: bool = False
     engines: dict[str, EngineState] = field(default_factory=dict)
     candles: dict[str, list[CandleSnapshot]] = field(default_factory=dict)
     last_updated: datetime = field(default_factory=datetime.now)
@@ -134,13 +140,37 @@ class AppState:
             self.market_mode = mode.value
             self.ai_recommendation = ai_recommendation
             self.ai_confidence = ai_confidence
-            from app.intelligence.time_rules import resolve_session_phase
-            self.session_phase = resolve_session_phase(datetime.now())
             self.last_updated = datetime.now()
 
     def set_preferred_engine(self, engine: str) -> None:
         with self._lock:
             self.preferred_engine = engine
+
+    def apply_scheduler_status(self, status) -> None:
+        with self._lock:
+            self.session_phase = status.current_phase
+            self.bias_locked = status.bias_locked
+            self.new_entries_allowed = status.new_entries_allowed
+            self.force_exit_active = status.force_exit_active
+            self.last_updated = datetime.now()
+
+    def set_readiness_report(self, report: dict) -> None:
+        with self._lock:
+            self.readiness_report = report
+            self.last_updated = datetime.now()
+
+    def set_risk_status(self, status: dict) -> None:
+        with self._lock:
+            self.risk_status = status
+            self.kill_switch_active = not status.get("trading_allowed", False) and any(
+                g.get("name") == "kill_switch" and not g.get("passed") for g in status.get("gates", [])
+            )
+            self.last_updated = datetime.now()
+
+    def set_force_exit_status(self, status: dict) -> None:
+        with self._lock:
+            self.force_exit_status = status
+            self.last_updated = datetime.now()
 
     def to_dict(self) -> dict[str, Any]:
         with self._lock:
@@ -159,6 +189,12 @@ class AppState:
                 "ai_confidence": self.ai_confidence,
                 "preferred_engine": self.preferred_engine,
                 "engine_decisions": dict(self.engine_decisions),
+                "readiness": dict(self.readiness_report),
+                "risk": dict(self.risk_status),
+                "force_exit": dict(self.force_exit_status),
+                "new_entries_allowed": self.new_entries_allowed,
+                "force_exit_active": self.force_exit_active,
+                "kill_switch_active": self.kill_switch_active,
                 "allocations": dict(self.allocations),
                 "engines": {
                     name: {

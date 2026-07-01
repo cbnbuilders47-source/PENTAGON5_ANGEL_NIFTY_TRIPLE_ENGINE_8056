@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import broker, dashboard, engines, health, market, reports
+from app.api.v1 import broker, dashboard, engines, health, market, reports, risk, scheduler
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -12,3 +12,5 @@ api_router.include_router(engines.router, prefix="/engines", tags=["engines"])
 api_router.include_router(market.router, prefix="/market", tags=["market"])
 api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
+api_router.include_router(risk.router, prefix="/risk", tags=["risk"])
+api_router.include_router(scheduler.router, prefix="/scheduler", tags=["scheduler"])

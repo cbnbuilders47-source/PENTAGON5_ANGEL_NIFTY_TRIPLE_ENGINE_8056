@@ -35,3 +35,10 @@ async def broker_disconnect(request: Request) -> dict:
     session = request.app.state.broker_session
     await session.disconnect()
     return {"success": True}
+
+
+@router.get("/readiness")
+async def broker_readiness(request: Request) -> dict:
+    gate = request.app.state.readiness_gate
+    report = gate.evaluate()
+    return report.to_dict()

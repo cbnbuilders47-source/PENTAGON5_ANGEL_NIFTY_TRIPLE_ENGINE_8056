@@ -68,6 +68,12 @@ class StateResponse(BaseModel):
     ai_confidence: float = 0.0
     preferred_engine: str = "normal"
     engine_decisions: dict[str, dict] = Field(default_factory=dict)
+    readiness: dict = Field(default_factory=dict)
+    risk: dict = Field(default_factory=dict)
+    force_exit: dict = Field(default_factory=dict)
+    new_entries_allowed: bool = False
+    force_exit_active: bool = False
+    kill_switch_active: bool = False
     allocations: AllocationResponse
     engines: list[EngineInfo]
     last_updated: datetime

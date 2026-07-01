@@ -82,6 +82,7 @@ class CandleBuilder:
 
     def __init__(self) -> None:
         self._builders: dict[str, _CandleBuilder] = {}
+        self._last_tick_at: dict[str, datetime] = {}
         self._lock = threading.Lock()
 
     def get_or_create(self, symbol: str) -> _CandleBuilder:
@@ -92,7 +93,12 @@ class CandleBuilder:
     def on_tick(self, symbol: str, price: float, volume: int = 0, ts: datetime | None = None) -> CandleBar | None:
         ts = ts or datetime.now()
         with self._lock:
+            self._last_tick_at[symbol] = ts
             return self.get_or_create(symbol).on_tick(price, volume, ts)
+
+    def get_last_tick_at(self, symbol: str) -> datetime | None:
+        with self._lock:
+            return self._last_tick_at.get(symbol)
 
     def get_candles(self, symbol: str, limit: int = 60) -> list[CandleBar]:
         with self._lock:
