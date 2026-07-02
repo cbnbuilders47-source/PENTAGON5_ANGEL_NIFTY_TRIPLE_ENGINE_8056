@@ -8,8 +8,7 @@ router = APIRouter()
 @router.get("/status")
 async def scheduler_status(request: Request) -> dict:
     scheduler = request.app.state.session_scheduler
-    status = scheduler.tick()
-    request.app.state.app_state.apply_scheduler_status(status)
+    status = scheduler.read_status()
     return {
         "current_phase": status.current_phase.value,
         "bias_locked": status.bias_locked,

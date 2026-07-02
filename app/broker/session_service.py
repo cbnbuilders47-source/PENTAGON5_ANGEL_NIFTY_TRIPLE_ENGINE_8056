@@ -53,7 +53,7 @@ class BrokerSessionService:
             self._state.set_broker_reconnect_required(True, "Angel login failed")
             return {"success": False, "error": "Angel login failed"}
 
-        self._state.broker_connected = True
+        self._state.set_broker_connected(True)
         self._state.set_broker_reconnect_required(False)
 
         if not self._tokens.is_valid:
@@ -96,10 +96,10 @@ class BrokerSessionService:
             on_reconnect_status=self._on_reconnect_status,
         )
         if not ws_ok:
-            self._state.websocket_connected = False
+            self._state.set_websocket_connected(False)
             return {"success": False, "error": "WebSocket connection failed"}
 
-        self._state.websocket_connected = True
+        self._state.set_websocket_connected(True)
 
         if self._recovery:
             summary = await self._recovery.recover()
@@ -118,14 +118,16 @@ class BrokerSessionService:
         await self._ws.disconnect()
         await self._angel.disconnect()
         self._tokens.clear()
-        self._state.broker_connected = False
-        self._state.websocket_connected = False
+        self._state.set_broker_connected(False)
+        self._state.set_websocket_connected(False)
         self._state.set_broker_reconnect_required(True, "Broker disconnected")
         logger.info("Broker session disconnected")
 
     def _on_ws_status_change(self, connected: bool) -> None:
-        self._state.websocket_connected = connected
-        if not connected:
+        self._state.set_websocket_connected(connected)
+        if connected and self._state.broker_connected and self._tokens.is_valid:
+            self._state.set_broker_reconnect_required(False)
+        elif not connected:
             self._state.set_broker_reconnect_required(True, "WebSocket disconnected — reconnect required")
 
     def _on_reconnect_status(self, status: dict) -> None:

@@ -102,6 +102,19 @@ class WebSocketManager:
             self._on_status_change(True)
         return True
 
+    def _stop_ws_connection(self) -> None:
+        """Close existing socket before starting a replacement thread."""
+        with self._lock:
+            ws = self._ws
+            self._ws = None
+            self._thread = None
+            self._connected = False
+        if ws:
+            try:
+                ws.close_connection()
+            except Exception as exc:
+                logger.warning("WebSocket close before reconnect: %s", exc)
+
     def _start_ws_thread(
         self,
         jwt_token: str,
@@ -110,6 +123,7 @@ class WebSocketManager:
         api_key: str,
         subscriptions: dict[str, tuple[str, str]],
     ) -> None:
+        self._stop_ws_connection()
         from SmartApi.smartWebSocketV2 import SmartWebSocketV2
 
         token_list = self._build_token_list(subscriptions)
@@ -267,15 +281,7 @@ class WebSocketManager:
         self._reconnect_creds = None
         self._reconnect_attempt = 0
         self._reconnecting = False
-        if self._ws:
-            try:
-                await asyncio.to_thread(self._ws.close_connection)
-            except Exception as exc:
-                logger.warning("WebSocket close error: %s", exc)
-
-        self._ws = None
-        self._thread = None
-        self._connected = False
+        self._stop_ws_connection()
         if self._on_status_change:
             self._on_status_change(False)
         self._token_to_symbol.clear()

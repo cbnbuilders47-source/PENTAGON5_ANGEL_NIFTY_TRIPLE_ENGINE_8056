@@ -94,9 +94,9 @@ def _signal(engine: str = "normal") -> ExecutionSignal:
 
 
 @pytest.mark.asyncio
-@patch("app.execution.execution_controller.datetime")
-async def test_execution_blocks_normal_during_special_window(mock_dt):
-    mock_dt.now.return_value = _dt(14, 57, 30)
+@patch("app.execution.execution_controller.trading_now")
+async def test_execution_blocks_normal_during_special_window(mock_now):
+    mock_now.return_value = _dt(14, 57, 30)
     ctrl = _make_controller()
     ctrl.set_engine_mode("normal", EngineOperatingMode.AUTO)
     result = await ctrl.process_signal(_signal("normal"))
@@ -105,11 +105,11 @@ async def test_execution_blocks_normal_during_special_window(mock_dt):
 
 
 @pytest.mark.asyncio
-@patch("app.risk.risk_manager.datetime")
-@patch("app.execution.execution_controller.datetime")
-async def test_execution_allows_wick_during_special_window(mock_ctrl_dt, mock_risk_dt):
-    mock_ctrl_dt.now.return_value = _dt(14, 59, 0)
-    mock_risk_dt.now.return_value = _dt(14, 59, 0)
+@patch("app.risk.risk_manager.trading_now")
+@patch("app.execution.execution_controller.trading_now")
+async def test_execution_allows_wick_during_special_window(mock_ctrl_now, mock_risk_now):
+    mock_ctrl_now.return_value = _dt(14, 59, 0)
+    mock_risk_now.return_value = _dt(14, 59, 0)
     ctrl = _make_controller()
     ctrl.set_engine_mode("wick", EngineOperatingMode.AUTO)
     result = await ctrl.process_signal(_signal("wick"))
@@ -117,31 +117,33 @@ async def test_execution_allows_wick_during_special_window(mock_ctrl_dt, mock_ri
 
 
 @pytest.mark.asyncio
-@patch("app.risk.risk_manager.datetime")
-@patch("app.execution.execution_controller.datetime")
-async def test_execution_allows_normal_after_special_window(mock_ctrl_dt, mock_risk_dt):
-    mock_ctrl_dt.now.return_value = _dt(15, 1, 0)
-    mock_risk_dt.now.return_value = _dt(15, 1, 0)
+@patch("app.risk.risk_manager.trading_now")
+@patch("app.execution.execution_controller.trading_now")
+async def test_execution_allows_normal_after_special_window(mock_ctrl_now, mock_risk_now):
+    mock_ctrl_now.return_value = _dt(15, 1, 0)
+    mock_risk_now.return_value = _dt(15, 1, 0)
     ctrl = _make_controller()
     ctrl.set_engine_mode("normal", EngineOperatingMode.AUTO)
     result = await ctrl.process_signal(_signal("normal"))
     assert result.state in (ExecutionState.ORDER_CONFIRMED, ExecutionState.POSITION_ACTIVE)
 
 
-@patch("app.risk.risk_manager.datetime")
-def test_risk_manager_blocks_normal_during_special_window(mock_dt):
-    mock_dt.now.return_value = _dt(14, 58, 0)
+@patch("app.risk.risk_manager.trading_now")
+def test_risk_manager_blocks_normal_during_special_window(mock_now):
+    mock_now.return_value = _dt(14, 58, 0)
     state = AppState()
     state.set_available_margin(100000)
-    risk = RiskManager(state, TradingLocks(), SessionScheduler())
+    sched = SessionScheduler()
+    sched._new_entries_allowed = True
+    risk = RiskManager(state, TradingLocks(), sched)
     allowed, reason = risk.can_open_position("normal", "NIFTY24900CE", "hash1")
     assert allowed is False
     assert "Normal Engine blocked during Special No-Entry Window" in reason
 
 
-@patch("app.risk.risk_manager.datetime")
-def test_risk_manager_allows_wick_during_special_window(mock_dt):
-    mock_dt.now.return_value = _dt(14, 58, 0)
+@patch("app.risk.risk_manager.trading_now")
+def test_risk_manager_allows_wick_during_special_window(mock_now):
+    mock_now.return_value = _dt(14, 58, 0)
     state = AppState()
     state.set_available_margin(100000)
     risk = RiskManager(state, TradingLocks(), SessionScheduler(), readiness_gate=None)
@@ -175,11 +177,11 @@ async def test_exit_monitor_continues_during_special_window():
 
 
 @pytest.mark.asyncio
-@patch("app.risk.risk_manager.datetime")
-@patch("app.execution.execution_controller.datetime")
-async def test_force_exit_at_1514_overrides_special_window(mock_ctrl_dt, mock_risk_dt):
-    mock_ctrl_dt.now.return_value = _dt(15, 14, 30)
-    mock_risk_dt.now.return_value = _dt(15, 14, 30)
+@patch("app.risk.risk_manager.trading_now")
+@patch("app.execution.execution_controller.trading_now")
+async def test_force_exit_at_1514_overrides_special_window(mock_ctrl_now, mock_risk_now):
+    mock_ctrl_now.return_value = _dt(15, 14, 30)
+    mock_risk_now.return_value = _dt(15, 14, 30)
     ctrl = _make_controller()
     ctrl.set_engine_mode("wick", EngineOperatingMode.AUTO)
     ctrl._state.force_exit_active = True

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from app.core.sanitize import sanitize_broker_response
 from app.models.enums import EngineOperatingMode, ExecutionState, ExitReason, OrderSide
 
 
@@ -61,7 +62,7 @@ class ExecutionResult:
             "executed_price": self.executed_price,
             "quantity": self.quantity,
             "latency_ms": self.latency_ms,
-            "broker_response": self.broker_response,
+            "broker_response": sanitize_broker_response(self.broker_response),
             "updated_at": self.updated_at.isoformat(),
         }
 

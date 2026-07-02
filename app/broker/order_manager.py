@@ -132,6 +132,37 @@ class OrderManager:
             elapsed += 0.5
         return {"success": False, "message": "Order confirmation timeout"}
 
+    async def reconcile_order_fill(self, order_id: str) -> dict:
+        """One-shot broker reconciliation after confirm timeout."""
+        if not order_id:
+            return {"success": False, "message": "No order id", "reconciled": False}
+        status = await self.get_order_status(order_id)
+        if not status:
+            return {"success": False, "message": "Order not found in order book", "reconciled": False}
+        order_status = str(status.get("status", "")).lower()
+        if order_status in ("complete", "filled"):
+            price = await self.find_executed_price(order_id)
+            return {
+                "success": True,
+                "executed_price": price,
+                "status": status,
+                "reconciled": True,
+                "message": "Reconciled fill after timeout",
+            }
+        if order_status in ("rejected", "cancelled"):
+            return {
+                "success": False,
+                "message": f"Order {order_status}",
+                "status": status,
+                "reconciled": True,
+            }
+        return {
+            "success": False,
+            "message": f"Order still {order_status or 'pending'}",
+            "status": status,
+            "reconciled": False,
+        }
+
     async def _fetch_list(self, method: str) -> list[dict]:
         if self._rate_limiter.is_limited:
             return []

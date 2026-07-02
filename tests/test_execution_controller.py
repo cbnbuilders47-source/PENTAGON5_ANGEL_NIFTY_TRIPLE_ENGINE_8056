@@ -19,11 +19,11 @@ TRADING_HOUR = datetime(2026, 7, 1, 10, 0, 0)
 @pytest.fixture(autouse=True)
 def trading_hours_clock():
     with (
-        patch("app.execution.execution_controller.datetime") as ctrl_dt,
-        patch("app.risk.risk_manager.datetime") as risk_dt,
+        patch("app.execution.execution_controller.trading_now") as ctrl_now,
+        patch("app.risk.risk_manager.trading_now") as risk_now,
     ):
-        ctrl_dt.now.return_value = TRADING_HOUR
-        risk_dt.now.return_value = TRADING_HOUR
+        ctrl_now.return_value = TRADING_HOUR
+        risk_now.return_value = TRADING_HOUR
         yield
 
 
@@ -127,6 +127,20 @@ async def test_exit_all():
     ctrl._orders.confirm_order_execution = AsyncMock(return_value={"success": True, "executed_price": 110.0})
     results = await ctrl.exit_all(ExitReason.FORCE_EXIT)
     assert len(results) == 1
+
+
+@pytest.mark.asyncio
+async def test_exit_all_idempotent_while_in_progress():
+    state = AppState()
+    state.set_live_position("normal", {
+        "tradingsymbol": "NIFTY24900CE", "token": "1", "quantity": 65,
+        "entry_price": 100, "option_side": "CE",
+    })
+    ctrl = _make_controller(state)
+    ctrl._exit_all_in_progress = True
+    results = await ctrl.exit_all(ExitReason.FORCE_EXIT)
+    assert results == []
+    ctrl._orders.place_sell_order.assert_not_called()
 
 
 @pytest.mark.asyncio

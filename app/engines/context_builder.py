@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from app.core.clock import trading_now
 from app.core.state import AppState
 from app.intelligence.time_rules import bias_should_be_locked
 from app.intelligence.types import TradingContext
@@ -17,7 +18,7 @@ def build_context(
     market_mode: MarketMode,
     now: datetime | None = None,
 ) -> TradingContext:
-    now = now or datetime.now()
+    now = now or trading_now()
     phase = state.session_phase
 
     return TradingContext(

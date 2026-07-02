@@ -20,3 +20,4 @@ reports/*.xlsx
 data/*.db
 data/*.sqlite
 data/*.sqlite3
+data/live_positions.json

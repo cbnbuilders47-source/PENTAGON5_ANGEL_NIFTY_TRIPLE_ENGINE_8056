@@ -125,11 +125,11 @@ def test_auto_api_returns_403_when_blocked(client):
 
 def test_manual_validation_lifecycle():
     with (
-        patch("app.execution.execution_controller.datetime") as ctrl_dt,
-        patch("app.risk.risk_manager.datetime") as risk_dt,
+        patch("app.execution.execution_controller.trading_now") as ctrl_now,
+        patch("app.risk.risk_manager.trading_now") as risk_now,
     ):
-        ctrl_dt.now.return_value = TRADING_HOUR
-        risk_dt.now.return_value = TRADING_HOUR
+        ctrl_now.return_value = TRADING_HOUR
+        risk_now.return_value = TRADING_HOUR
         _, tracker, _, ctrl = _validation_stack()
         ctrl.set_engine_mode("normal", EngineOperatingMode.MANUAL)
 
@@ -179,10 +179,29 @@ async def test_recovery_status_clean():
     orders.get_order_book.return_value = []
     orders.get_trade_book.return_value = []
     positions = AsyncMock()
-    positions.sync_positions.return_value = [{"engine": "normal", "quantity": 1}]
-    recovery = ExecutionRecovery(state, orders, positions)
+    positions.sync_positions.return_value = [
+        {"symboltoken": "12345", "tradingsymbol": "NIFTY24JUL25000CE", "netqty": "65", "exchange": "NFO"},
+    ]
+    store = MagicMock()
+    store.load.return_value = {
+        "normal": {
+            "engine": "normal",
+            "token": "12345",
+            "tradingsymbol": "NIFTY24JUL25000CE",
+            "entry_price": 100.0,
+            "target": 108.0,
+            "stop_loss": 96.0,
+            "trailing_sl": 97.0,
+            "option_side": "CE",
+            "quantity": 65,
+        }
+    }
+    recovery = ExecutionRecovery(state, orders, positions, position_store=store)
     summary = await recovery.recover()
     assert summary["status"] == "clean"
+    assert summary["positions_recovered"] == 1
+    assert "normal" in state.live_positions
+    assert state.live_positions["normal"]["target"] == 108.0
     assert state.recovery_status["clean"] is True
 
 
@@ -193,8 +212,12 @@ async def test_recovery_status_dirty_on_unknown():
     orders.get_order_book.return_value = []
     orders.get_trade_book.return_value = []
     positions = AsyncMock()
-    positions.sync_positions.return_value = [{"engine": "unknown_engine", "quantity": 1}]
-    recovery = ExecutionRecovery(state, orders, positions)
+    positions.sync_positions.return_value = [
+        {"symboltoken": "99999", "tradingsymbol": "UNKNOWN", "netqty": "65"},
+    ]
+    store = MagicMock()
+    store.load.return_value = {}
+    recovery = ExecutionRecovery(state, orders, positions, position_store=store)
     summary = await recovery.recover()
     assert summary["status"] == "dirty"
     assert summary["unknown_positions"] == 1

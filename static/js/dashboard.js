@@ -167,6 +167,8 @@ function pnlClass(n) {
 }
 
 function showToast(msg, type = "info") {
+  const toast = document.getElementById("toast");
+  if (!toast) return;
   toast.textContent = msg;
   toast.className = `toast toast-${type}`;
   setTimeout(() => toast.classList.add("hidden"), 4000);
@@ -349,18 +351,27 @@ document.addEventListener("click", (e) => {
 
 // ── Broker ─────────────────────────────────────────────────
 
-function setBrokerUI(connected, wsConnected) {
+function setBrokerUI(connected, wsConnected, reconnectStatus) {
   const brokerEl = document.getElementById("broker-status");
   const wsEl = document.getElementById("ws-status");
   const mktEl = document.getElementById("market-status");
+  const rs = reconnectStatus || lastOperatorData?.reconnect_status;
 
   if (brokerEl) {
     brokerEl.textContent = connected ? "ANGEL CONNECTED" : "ANGEL OFFLINE";
     brokerEl.className = connected ? "status-chip ok" : "status-chip warn";
   }
   if (wsEl) {
-    wsEl.textContent = wsConnected ? "WS LIVE" : "WS OFFLINE";
-    wsEl.className = wsConnected ? "status-chip ok" : "status-chip warn";
+    if (rs?.status === "retrying") {
+      wsEl.textContent = `WS RETRY ${rs.attempt || ""}`.trim();
+      wsEl.className = "status-chip warn";
+    } else if (rs?.status === "failed" || rs?.status === "error") {
+      wsEl.textContent = "WS RECONNECT FAILED";
+      wsEl.className = "status-chip bad";
+    } else {
+      wsEl.textContent = wsConnected ? "WS LIVE" : "WS OFFLINE";
+      wsEl.className = wsConnected ? "status-chip ok" : "status-chip warn";
+    }
   }
   if (mktEl) {
     mktEl.textContent = connected ? "MARKET STATUS: OPEN" : "MARKET STATUS: OFFLINE";
@@ -1104,6 +1115,13 @@ async function refreshOperator() {
     updateAlertTicker(window.__lastDashboardState, data, data.readiness);
     updateMarketSummary(window.__lastDashboardState, data);
     updateNiftyCard(window.__lastDashboardState, lastNiftyCandles, data);
+    if (window.__lastDashboardState) {
+      setBrokerUI(
+        window.__lastDashboardState.broker_connected,
+        window.__lastDashboardState.websocket_connected,
+        data.reconnect_status
+      );
+    }
   } catch (err) {
     console.warn("refreshOperator failed", err);
   }
@@ -1235,7 +1253,7 @@ async function refreshState() {
     const state = await res.json();
     window.__lastDashboardState = state;
 
-    setBrokerUI(state.broker_connected, state.websocket_connected);
+    setBrokerUI(state.broker_connected, state.websocket_connected, lastOperatorData?.reconnect_status);
     updateMarginStrip(state);
     updateBullBear(state.bias);
     updateMarketSummary(state, lastOperatorData);
@@ -1270,9 +1288,11 @@ async function refreshState() {
       wick: document.getElementById("wick-slider"),
       ultra: document.getElementById("ultra-slider"),
     };
-    if (sliders.normal) sliders.normal.value = state.allocations.normal;
-    if (sliders.wick) sliders.wick.value = state.allocations.wick;
-    if (sliders.ultra) sliders.ultra.value = state.allocations.ultra;
+    if (state.allocations) {
+      if (sliders.normal) sliders.normal.value = state.allocations.normal ?? 30;
+      if (sliders.wick) sliders.wick.value = state.allocations.wick ?? 30;
+      if (sliders.ultra) sliders.ultra.value = state.allocations.ultra ?? 40;
+    }
 
     const updated = document.getElementById("last-updated");
     if (updated) updated.textContent = "Last updated: " + new Date(state.last_updated).toLocaleTimeString();
@@ -1631,7 +1651,6 @@ function init() {
   setInterval(refreshHealth, POLL.health);
   setInterval(refreshReadiness, POLL.health);
   setInterval(refreshState, POLL.state);
-  setInterval(refreshBroker, POLL.state);
   setInterval(refreshPnL, POLL.pnl);
   setInterval(refreshCandles, POLL.candles);
   setInterval(refreshLogs, POLL.logs);

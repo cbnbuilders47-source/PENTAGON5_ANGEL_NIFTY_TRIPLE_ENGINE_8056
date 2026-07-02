@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from app.broker.readiness import BrokerReadinessGate
+from app.core.clock import trading_now
 from app.core.logging import get_logger
 from app.core.state import AppState
 from app.intelligence.time_rules import engine_new_entries_allowed, special_no_entry_block_message
@@ -81,8 +82,9 @@ class RiskManager:
         if self._state.force_exit_active:
             return False, "Force-exit window active"
 
-        if not engine_new_entries_allowed(engine, datetime.now()):
-            block_msg = special_no_entry_block_message(engine, datetime.now())
+        now = trading_now()
+        if not engine_new_entries_allowed(engine, now):
+            block_msg = special_no_entry_block_message(engine, now)
             if block_msg:
                 return False, block_msg
             return False, "New entries not allowed in current session phase"

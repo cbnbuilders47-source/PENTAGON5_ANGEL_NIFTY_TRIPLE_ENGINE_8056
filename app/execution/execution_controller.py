@@ -7,9 +7,11 @@ import time
 import uuid
 from datetime import datetime, timedelta
 
+from app.broker.margin_manager import MarginManager
 from app.broker.order_manager import OrderManager
 from app.broker.position_manager import PositionManager
 from app.broker.readiness import BrokerReadinessGate
+from app.core.clock import trading_now
 from app.core.logging import get_logger
 from app.core.state import AppState
 from app.execution.execution_audit import ExecutionAudit
@@ -28,6 +30,7 @@ from app.risk.risk_manager import RiskManager
 from app.scheduler.session_scheduler import SessionScheduler
 from app.validation.manual_tracker import ManualValidationTracker
 from app.validation.validation_service import ProductionValidationService
+from app.storage.position_store import PositionStore
 
 logger = get_logger(__name__)
 
@@ -48,6 +51,8 @@ class ExecutionController:
         position_manager: PositionManager,
         manual_tracker: ManualValidationTracker | None = None,
         validation_service: ProductionValidationService | None = None,
+        margin_manager: MarginManager | None = None,
+        position_store: PositionStore | None = None,
     ) -> None:
         self._state = state
         self._risk = risk_manager
@@ -61,6 +66,10 @@ class ExecutionController:
         self._recent_results: list[ExecutionResult] = []
         self._manual = manual_tracker
         self._validation = validation_service
+        self._margin = margin_manager
+        self._position_store = position_store or PositionStore()
+        self._exit_all_in_progress = False
+        self._exiting_engines: set[str] = set()
 
     @property
     def pending_manual(self) -> dict[str, PendingManualApproval]:
@@ -170,34 +179,48 @@ class ExecutionController:
         return ExecutionResult(approval_id, "", ExecutionState.COMPLETED, "Manual signal rejected")
 
     async def exit_all(self, reason: ExitReason = ExitReason.FORCE_EXIT) -> list[ExecutionResult]:
-        results = []
-        for engine, pos in list(self._state.live_positions.items()):
-            signal = ExecutionSignal(
-                engine=engine,
-                action="EXIT",
-                symbol=pos.get("option_side", "CE"),
-                tradingsymbol=pos["tradingsymbol"],
-                token=pos["token"],
-                exchange=pos.get("exchange", "NFO"),
-                reasons=[reason.value],
-            )
-            results.append(await self._execute_exit(str(uuid.uuid4())[:12], signal, pos))
-        return results
+        if self._exit_all_in_progress or not self._state.live_positions:
+            return []
+        self._exit_all_in_progress = True
+        try:
+            results = []
+            for engine, pos in list(self._state.live_positions.items()):
+                if engine in self._exiting_engines:
+                    continue
+                signal = ExecutionSignal(
+                    engine=engine,
+                    action="EXIT",
+                    symbol=pos.get("option_side", "CE"),
+                    tradingsymbol=pos["tradingsymbol"],
+                    token=pos["token"],
+                    exchange=pos.get("exchange", "NFO"),
+                    reasons=[reason.value],
+                )
+                results.append(await self._execute_exit(str(uuid.uuid4())[:12], signal, pos))
+            return results
+        finally:
+            self._exit_all_in_progress = False
 
     async def exit_engine(self, engine: str, reason: ExitReason = ExitReason.MANUAL) -> ExecutionResult | None:
         pos = self._state.live_positions.get(engine)
         if not pos:
             return ExecutionResult(str(uuid.uuid4())[:12], engine, ExecutionState.COMPLETED, "No open position")
-        mode = self.get_engine_mode(engine)
-        if mode == EngineOperatingMode.MANUAL:
-            self._track_manual(engine, "exit_signal_generated")
-            self._track_manual(engine, "manual_exit_approval_received")
-        signal = ExecutionSignal(
-            engine=engine, action="EXIT", symbol=pos.get("option_side", ""),
-            tradingsymbol=pos["tradingsymbol"], token=pos["token"],
-            exchange=pos.get("exchange", "NFO"), reasons=[reason.value],
-        )
-        return await self._execute_exit(str(uuid.uuid4())[:12], signal, pos)
+        if engine in self._exiting_engines:
+            return ExecutionResult(str(uuid.uuid4())[:12], engine, ExecutionState.COMPLETED, "Exit already in progress")
+        self._exiting_engines.add(engine)
+        try:
+            mode = self.get_engine_mode(engine)
+            if mode == EngineOperatingMode.MANUAL:
+                self._track_manual(engine, "exit_signal_generated")
+                self._track_manual(engine, "manual_exit_approval_received")
+            signal = ExecutionSignal(
+                engine=engine, action="EXIT", symbol=pos.get("option_side", ""),
+                tradingsymbol=pos["tradingsymbol"], token=pos["token"],
+                exchange=pos.get("exchange", "NFO"), reasons=[reason.value],
+            )
+            return await self._execute_exit(str(uuid.uuid4())[:12], signal, pos)
+        finally:
+            self._exiting_engines.discard(engine)
 
     def status(self) -> dict:
         self._expire_manual_approvals()
@@ -225,9 +248,10 @@ class ExecutionController:
             lifecycle.transition(ExecutionState.BLOCKED_BY_TIME)
             return "Force-exit window — entries blocked"
 
-        if signal.action.startswith("BUY") and not engine_new_entries_allowed(signal.engine, datetime.now()):
+        now = trading_now()
+        if signal.action.startswith("BUY") and not engine_new_entries_allowed(signal.engine, now):
             lifecycle.transition(ExecutionState.BLOCKED_BY_TIME)
-            block_msg = special_no_entry_block_message(signal.engine, datetime.now())
+            block_msg = special_no_entry_block_message(signal.engine, now)
             return block_msg or "New entries blocked by session schedule"
 
         sig_hash = hashlib.md5(f"{signal.engine}|{signal.action}|{signal.token}".encode()).hexdigest()
@@ -292,8 +316,22 @@ class ExecutionController:
         lifecycle.transition(ExecutionState.ORDER_PENDING)
         confirmed = await self._orders.confirm_order_execution(order_id)
         if not confirmed.get("success"):
-            lifecycle.transition(ExecutionState.UNKNOWN_ORDER_STATE)
-            result = ExecutionResult(request_id, signal.engine, lifecycle.state, "Order state unknown", order_id=order_id, broker_response=confirmed, latency_ms=latency)
+            confirmed = await self._orders.reconcile_order_fill(order_id)
+        if not confirmed.get("success"):
+            if confirmed.get("reconciled"):
+                lifecycle.transition(ExecutionState.ORDER_REJECTED)
+                result = ExecutionResult(
+                    request_id=request_id, engine=signal.engine, state=lifecycle.state,
+                    message=confirmed.get("message", "Order rejected"), order_id=order_id,
+                    broker_response=confirmed, latency_ms=latency,
+                )
+            else:
+                lifecycle.transition(ExecutionState.UNKNOWN_ORDER_STATE)
+                result = ExecutionResult(
+                    request_id=request_id, engine=signal.engine, state=lifecycle.state,
+                    message="Order state unknown — position not created", order_id=order_id,
+                    broker_response=confirmed, latency_ms=latency,
+                )
             self._record(result)
             return result
 
@@ -324,6 +362,8 @@ class ExecutionController:
         }
         self._state.set_live_position(signal.engine, position)
         self._state.engines[signal.engine].open_positions = 1
+        self._persist_positions()
+        await self._refresh_margin()
 
         result = ExecutionResult(
             request_id=request_id, engine=signal.engine, state=lifecycle.state,
@@ -356,6 +396,20 @@ class ExecutionController:
 
         order_id = str(response.get("order_id", ""))
         confirmed = await self._orders.confirm_order_execution(order_id)
+        if not confirmed.get("success"):
+            confirmed = await self._orders.reconcile_order_fill(order_id)
+        if not confirmed.get("success"):
+            state = ExecutionState.ORDER_REJECTED if confirmed.get("reconciled") else ExecutionState.UNKNOWN_ORDER_STATE
+            msg = confirmed.get("message", "Exit not confirmed — position retained")
+            if state == ExecutionState.UNKNOWN_ORDER_STATE:
+                msg = "Exit state unknown — position retained"
+            result = ExecutionResult(
+                request_id, signal.engine, state, msg,
+                order_id=order_id, broker_response=confirmed, latency_ms=latency,
+            )
+            self._record(result)
+            return result
+
         exit_price = float(confirmed.get("executed_price") or pos.get("current_ltp", 0))
         entry = float(pos.get("entry_price", 0))
         points = exit_price - entry
@@ -375,6 +429,8 @@ class ExecutionController:
         )
         lifecycle.transition(ExecutionState.COMPLETED)
         self._reset_engine_after_exit(signal.engine)
+        self._persist_positions()
+        await self._refresh_margin()
         self._record(result)
         return result
 
@@ -392,6 +448,16 @@ class ExecutionController:
     def _track_manual(self, engine: str, step: str) -> None:
         if self._manual:
             self._manual.mark(engine, step)
+
+    def _persist_positions(self) -> None:
+        self._position_store.save(dict(self._state.live_positions))
+
+    async def _refresh_margin(self) -> None:
+        if self._margin:
+            try:
+                await self._margin.refresh()
+            except Exception as exc:
+                logger.warning("Margin refresh after trade failed: %s", exc)
 
     def _record(self, result: ExecutionResult) -> None:
         self._recent_results.append(result)

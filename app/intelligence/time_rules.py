@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, time
 
 from app.core.constants import (
+    AUTO_SHUTDOWN,
     BIAS_LOCK,
     ENGINE_NORMAL,
     ENGINE_ULTRA,
@@ -97,4 +98,5 @@ def pre_market_analysis(phase: SessionPhase) -> bool:
 
 
 def bias_should_be_locked(now: datetime) -> bool:
-    return now.time() >= BIAS_LOCK
+    t = now.time()
+    return BIAS_LOCK <= t < AUTO_SHUTDOWN

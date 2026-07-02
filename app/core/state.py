@@ -10,6 +10,8 @@ from typing import Any
 from app.core.constants import DEFAULT_ALLOCATIONS, ENGINE_NORMAL, ENGINE_ULTRA, ENGINE_WICK
 from app.models.enums import BiasDirection, EngineOperatingMode, EngineStatus, MarketMode, SessionPhase
 
+MAX_TRADE_HISTORY = 500
+
 
 @dataclass
 class EngineState:
@@ -125,6 +127,16 @@ class AppState:
             self._recalculate_margins()
             self.last_updated = datetime.now()
 
+    def set_broker_connected(self, connected: bool) -> None:
+        with self._lock:
+            self.broker_connected = connected
+            self.last_updated = datetime.now()
+
+    def set_websocket_connected(self, connected: bool) -> None:
+        with self._lock:
+            self.websocket_connected = connected
+            self.last_updated = datetime.now()
+
     def set_day_pnl(self, realized: float, unrealized: float) -> None:
         with self._lock:
             self.today_realized_pnl = realized
@@ -134,8 +146,8 @@ class AppState:
     @property
     def today_total_pnl(self) -> float:
         with self._lock:
-            engine_pnl = sum(e.pnl for e in self.engines.values())
-            return self.today_realized_pnl + self.today_unrealized_pnl + engine_pnl
+            # engine.pnl is per-engine realized; already included via record_trade → today_realized_pnl
+            return self.today_realized_pnl + self.today_unrealized_pnl
 
     def _recalculate_margins(self) -> None:
         for name, engine in self.engines.items():
@@ -251,6 +263,8 @@ class AppState:
                 "exit_reason": reason,
                 "closed_at": datetime.now().isoformat(),
             })
+            if len(self.trade_history) > MAX_TRADE_HISTORY:
+                self.trade_history = self.trade_history[-MAX_TRADE_HISTORY:]
             self.today_realized_pnl += pnl
             self.last_updated = datetime.now()
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+from app.core.sanitize import sanitize_broker_response
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.execution.execution_models import ExecutionResult
@@ -21,7 +22,10 @@ class ExecutionAudit:
 
     def log(self, event: str, payload: dict) -> None:
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        line = f"{ts} | {event} | {payload}"
+        safe = dict(payload)
+        if "broker_response" in safe:
+            safe["broker_response"] = sanitize_broker_response(safe["broker_response"])
+        line = f"{ts} | {event} | {safe}"
         logger.info("EXEC_AUDIT %s", line)
         with self._file.open("a", encoding="utf-8") as f:
             f.write(line + "\n")

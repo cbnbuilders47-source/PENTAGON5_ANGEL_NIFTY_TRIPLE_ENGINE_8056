@@ -130,7 +130,7 @@ async def get_operator_diagnostics(request: Request) -> dict:
     scheduler = request.app.state.session_scheduler
     exec_ctrl = request.app.state.execution_controller
 
-    sched = scheduler.tick()
+    sched = scheduler.read_status()
     nifty_candles = candle_builder.get_candles("NIFTY")
     ce_candles = candle_builder.get_candles("ATM_CE")
     pe_candles = candle_builder.get_candles("ATM_PE")

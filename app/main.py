@@ -92,6 +92,7 @@ async def lifespan(app: FastAPI):
     order_manager = OrderManager(angel_manager, rate_limiter)
     position_manager = PositionManager(angel_manager, rate_limiter)
     manual_validation_tracker = ManualValidationTracker()
+    margin_manager = MarginManager(app_state, angel_manager)
     validation_service = ProductionValidationService(
         state=app_state,
         readiness_gate=readiness_gate,
@@ -111,6 +112,7 @@ async def lifespan(app: FastAPI):
         position_manager=position_manager,
         manual_tracker=manual_validation_tracker,
         validation_service=validation_service,
+        margin_manager=margin_manager,
     )
     execution_recovery = ExecutionRecovery(app_state, order_manager, position_manager)
     exit_monitor = ExitMonitor(app_state, execution_controller, session_scheduler)
@@ -121,7 +123,7 @@ async def lifespan(app: FastAPI):
     app.state.angel_manager = angel_manager
     app.state.token_manager = token_manager
     app.state.websocket_manager = websocket_manager
-    app.state.margin_manager = MarginManager(app_state, angel_manager)
+    app.state.margin_manager = margin_manager
     app.state.instrument_master = instrument_master
     app.state.atm_manager = atm_manager
     app.state.rate_limiter = rate_limiter

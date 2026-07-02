@@ -18,6 +18,7 @@ from app.core.constants import (
     STOP_NEW_ENTRIES,
     TRADING_START,
 )
+from app.core.clock import trading_now
 from app.core.logging import get_logger
 from app.models.enums import SessionPhase
 
@@ -93,7 +94,7 @@ class SessionScheduler:
         self._on_phase_change = callback
 
     def tick(self, now: datetime | None = None) -> SchedulerStatus:
-        now = now or datetime.now()
+        now = now or trading_now()
         self._reset_if_new_day(now)
 
         t = now.time()
@@ -121,6 +122,21 @@ class SessionScheduler:
                 {"label": e.label, "phase": e.phase.value, "at": e.at.isoformat(), "fired": e.fired}
                 for e in self._events
             ],
+        )
+
+    def read_status(self) -> SchedulerStatus:
+        """Read-only snapshot for dashboards — does not advance phase or fire events."""
+        return SchedulerStatus(
+            current_phase=self._current_phase,
+            bias_locked=self._bias_locked,
+            new_entries_allowed=self._new_entries_allowed,
+            force_exit_active=self._force_exit_active,
+            shutdown_prep=self._shutdown_prep,
+            events_today=[
+                {"label": e.label, "phase": e.phase.value, "at": e.at.isoformat(), "fired": e.fired}
+                for e in self._events
+            ],
+            last_tick_at=trading_now(),
         )
 
     def _reset_if_new_day(self, now: datetime) -> None:

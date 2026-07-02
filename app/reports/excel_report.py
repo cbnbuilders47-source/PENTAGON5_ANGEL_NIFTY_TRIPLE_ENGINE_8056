@@ -40,7 +40,9 @@ class ExcelReport:
         for log_name in ("Broker Log", "Execution Log", "Risk Log", "Error Log", "Audit Log", "Statistics"):
             wb.create_sheet(log_name)
 
-        wb.save(path)
+        tmp = path.with_suffix(".xlsx.tmp")
+        wb.save(tmp)
+        tmp.replace(path)
         logger.info("Excel report saved: %s", path)
         return path
 
