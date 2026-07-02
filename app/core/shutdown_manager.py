@@ -19,7 +19,7 @@ class ShutdownManager:
     def __init__(self, app) -> None:
         self._app = app
 
-    async def shutdown(self, *, exit_process: bool = True) -> None:
+    async def shutdown(self, *, exit_process: bool = False) -> None:
         logger.info("Graceful shutdown initiated")
         state = self._app.state.app_state
         settings = self._app.state.settings
