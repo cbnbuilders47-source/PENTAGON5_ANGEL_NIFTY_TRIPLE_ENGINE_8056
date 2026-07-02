@@ -114,7 +114,11 @@ def test_auto_blocked_when_readiness_incomplete():
 
 
 def test_auto_api_returns_403_when_blocked(client):
-    res = client.post("/api/v1/engine/normal/mode", json={"mode": "AUTO"})
+    client.app.state.settings.dashboard_trade_password = "TradeSecret8056"
+    res = client.post(
+        "/api/v1/engine/normal/mode",
+        json={"mode": "AUTO", "password": "TradeSecret8056"},
+    )
     assert res.status_code == 403
     assert "reason" in res.json()["detail"]
 

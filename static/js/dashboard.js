@@ -74,6 +74,8 @@ let currentSchedulerPhase = "OFFLINE";
 let lastOperatorData = null;
 let logFilterText = "";
 let cachedLogLines = [];
+let pendingApprovalsMap = {};
+let passwordModalResolver = null;
 
 const btnConnect = document.getElementById("btn-connect");
 const btnDisconnect = document.getElementById("btn-disconnect");
@@ -1277,30 +1279,159 @@ async function refreshState() {
   } catch { /* silent */ }
 }
 
+// ── Password confirmation modal ────────────────────────────
+
+function formatEstimatedAmount(premium, qty) {
+  if (!premium || !qty) return "—";
+  return formatCurrency(premium * qty);
+}
+
+function setPasswordModalError(message) {
+  const err = document.getElementById("pwd-modal-error");
+  if (!err) return;
+  if (message) {
+    err.textContent = message;
+    err.classList.remove("hidden");
+  } else {
+    err.textContent = "";
+    err.classList.add("hidden");
+  }
+}
+
+function closePasswordModal(result = null) {
+  const modal = document.getElementById("password-modal");
+  const input = document.getElementById("pwd-modal-input");
+  if (modal) modal.classList.add("hidden");
+  if (input) input.value = "";
+  setPasswordModalError("");
+  if (passwordModalResolver) {
+    const resolve = passwordModalResolver;
+    passwordModalResolver = null;
+    resolve(result);
+  }
+}
+
+function showPasswordModal({ title, summary, details = [] }) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById("password-modal");
+    const titleEl = document.getElementById("pwd-modal-title");
+    const summaryEl = document.getElementById("pwd-modal-summary");
+    const detailsEl = document.getElementById("pwd-modal-details");
+    const input = document.getElementById("pwd-modal-input");
+    if (!modal || !titleEl || !summaryEl || !detailsEl || !input) {
+      resolve(null);
+      return;
+    }
+    passwordModalResolver = resolve;
+    titleEl.textContent = title || "Confirm Action";
+    summaryEl.textContent = summary || "—";
+    detailsEl.innerHTML = details.map((d) => `
+      <div class="pwd-detail"><span>${d.label}</span><b>${d.value ?? "—"}</b></div>
+    `).join("");
+    input.value = "";
+    setPasswordModalError("");
+    modal.classList.remove("hidden");
+    setTimeout(() => input.focus(), 50);
+  });
+}
+
+document.getElementById("pwd-modal-cancel")?.addEventListener("click", () => closePasswordModal(null));
+document.getElementById("pwd-modal-backdrop")?.addEventListener("click", () => closePasswordModal(null));
+document.getElementById("pwd-modal-confirm")?.addEventListener("click", () => {
+  const input = document.getElementById("pwd-modal-input");
+  const password = input?.value || "";
+  if (!password) {
+    setPasswordModalError("Password confirmation failed");
+    return;
+  }
+  closePasswordModal(password);
+});
+document.getElementById("pwd-modal-input")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") document.getElementById("pwd-modal-confirm")?.click();
+  if (e.key === "Escape") closePasswordModal(null);
+});
+document.addEventListener("keydown", (e) => {
+  const modal = document.getElementById("password-modal");
+  if (e.key === "Escape" && modal && !modal.classList.contains("hidden")) {
+    closePasswordModal(null);
+  }
+});
+
+async function requestTradePassword(options) {
+  return showPasswordModal(options);
+}
+
+async function postWithPassword(path, password, extraBody = {}, method = "POST") {
+  const res = await apiFetch(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...extraBody, password }),
+  });
+  if (res.status === 403) {
+    const data = await res.json().catch(() => ({}));
+    const msg = data.detail || "Password confirmation failed";
+    showToast(typeof msg === "string" ? msg : "Password confirmation failed", "error");
+    return null;
+  }
+  return res;
+}
+
 // ── Engine mode controls ───────────────────────────────────
 
-async function setEngineMode(engine, mode) {
+async function setEngineMode(engine, mode, password = null) {
+  const body = { mode };
+  if (password) body.password = password;
   const res = await apiFetch(`/engine/${engine}/mode`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode }),
+    body: JSON.stringify(body),
   });
   if (res.status === 403) {
     const data = await res.json();
-    const reason = data.detail?.reason || data.detail || "AUTO blocked";
-    showToast(`${engine} AUTO blocked: ${reason}`, "error");
+    const reason = data.detail?.reason || data.detail || "Password confirmation failed";
+    showToast(`${engine}: ${reason}`, "error");
     refreshState();
+    return false;
+  }
+  if (res.ok) { showToast(`${engine} → ${mode}`, "ok"); refreshState(); return true; }
+  return false;
+}
+
+async function promptEngineMode(engine, mode) {
+  if (mode !== "AUTO") {
+    await setEngineMode(engine, mode);
     return;
   }
-  if (res.ok) { showToast(`${engine} → ${mode}`, "ok"); refreshState(); }
+  const password = await requestTradePassword({
+    title: "Enable AUTO Mode",
+    summary: `Enable AUTO trading for ${engine.toUpperCase()} engine?`,
+    details: [
+      { label: "Engine", value: engine.toUpperCase() },
+      { label: "Mode", value: "AUTO" },
+    ],
+  });
+  if (!password) return;
+  await setEngineMode(engine, mode, password);
 }
 
 document.querySelectorAll(".mode-select").forEach((sel) => {
-  sel.addEventListener("change", () => setEngineMode(sel.dataset.engine, sel.value));
+  sel.addEventListener("change", () => {
+    const mode = sel.value;
+    if (mode === "AUTO") {
+      const prev = sel.dataset.lastMode || "MONITOR";
+      sel.value = prev;
+      promptEngineMode(sel.dataset.engine, "AUTO").then((ok) => {
+        if (ok !== false) sel.dataset.lastMode = "AUTO";
+      });
+      return;
+    }
+    sel.dataset.lastMode = mode;
+    setEngineMode(sel.dataset.engine, mode);
+  });
 });
 
 document.querySelectorAll(".eng-btn-auto").forEach((btn) => {
-  btn.addEventListener("click", () => setEngineMode(btn.dataset.engine, "AUTO"));
+  btn.addEventListener("click", () => promptEngineMode(btn.dataset.engine, "AUTO"));
 });
 document.querySelectorAll(".eng-btn-manual").forEach((btn) => {
   btn.addEventListener("click", () => setEngineMode(btn.dataset.engine, "MANUAL"));
@@ -1319,17 +1450,27 @@ document.querySelectorAll(".eng-btn-start").forEach((btn) => {
 });
 document.querySelectorAll(".eng-btn-exit").forEach((btn) => {
   btn.addEventListener("click", async () => {
-    await apiFetch(`/engine/${btn.dataset.engine}/exit`, { method: "POST" });
-    showToast(`${btn.dataset.engine} exit sent`, "info");
+    const engine = btn.dataset.engine;
+    const password = await requestTradePassword({
+      title: "Engine Exit",
+      summary: `Confirm live exit for ${engine.toUpperCase()} engine?`,
+      details: [{ label: "Engine", value: engine.toUpperCase() }, { label: "Action", value: "EXIT" }],
+    });
+    if (!password) return;
+    const res = await postWithPassword(`/engine/${engine}/exit`, password);
+    if (!res) return;
+    showToast(`${engine} exit sent`, "info");
     refreshState();
   });
 });
 
 function updateManualApprovals(approvals) {
   const container = document.getElementById("manual-approvals");
+  pendingApprovalsMap = {};
   if (!container) return;
   if (!approvals.length) { container.classList.add("hidden"); container.innerHTML = ""; return; }
   container.classList.remove("hidden");
+  approvals.forEach((a) => { pendingApprovalsMap[a.approval_id] = a; });
   container.innerHTML = approvals.map((a) => `
     <div class="manual-card">
       <div><strong>${a.engine.toUpperCase()}</strong> ${a.action} · ${a.option_side || ""} · Qty ${a.quantity}</div>
@@ -1342,8 +1483,25 @@ function updateManualApprovals(approvals) {
 }
 
 async function approveManual(id) {
-  await apiFetch("/execution/manual/approve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approval_id: id }) });
-  showToast("Order approved", "ok"); refreshState();
+  const approval = pendingApprovalsMap[id] || {};
+  const isExit = String(approval.action || "").toUpperCase().includes("EXIT");
+  const password = await requestTradePassword({
+    title: isExit ? "Manual EXIT Approval" : "Manual BUY Approval",
+    summary: isExit ? "Confirm live SELL / exit order?" : "Confirm live BUY order?",
+    details: [
+      { label: "Engine", value: (approval.engine || "—").toUpperCase() },
+      { label: "Action", value: approval.action || "—" },
+      { label: "Side", value: approval.option_side || "—" },
+      { label: "Strike", value: approval.strike ?? "—" },
+      { label: "Qty", value: approval.quantity ?? "—" },
+      { label: "Est. Amount", value: formatEstimatedAmount(approval.premium, approval.quantity) },
+    ],
+  });
+  if (!password) return;
+  const res = await postWithPassword("/execution/manual/approve", password, { approval_id: id });
+  if (!res) return;
+  showToast("Order approved", "ok");
+  refreshState();
 }
 async function rejectManual(id) {
   await apiFetch("/execution/manual/reject", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approval_id: id }) });
@@ -1355,8 +1513,16 @@ window.rejectManual = rejectManual;
 // ── Master bar actions ─────────────────────────────────────
 
 document.getElementById("btn-exit-all")?.addEventListener("click", async () => {
-  await apiFetch("/execution/exit-all", { method: "POST" });
+  const password = await requestTradePassword({
+    title: "Emergency Exit All",
+    summary: "Confirm emergency exit for all open positions?",
+    details: [{ label: "Action", value: "EXIT ALL" }],
+  });
+  if (!password) return;
+  const res = await postWithPassword("/execution/exit-all", password);
+  if (!res) return;
   showToast("Emergency exit all triggered", "error");
+  refreshState();
 });
 
 document.getElementById("btn-download-report")?.addEventListener("click", () => {
@@ -1369,10 +1535,18 @@ document.getElementById("btn-restart")?.addEventListener("click", async () => {
 });
 
 document.getElementById("btn-exit-server")?.addEventListener("click", async () => {
-  if (confirm("Shutdown server?")) {
-    await apiFetch("/system/shutdown", { method: "POST" });
-    showToast("Shutdown initiated", "info");
-  }
+  const password = await requestTradePassword({
+    title: "Exit Server",
+    summary: "Are you sure you want to stop the dashboard server?",
+    details: [
+      { label: "Service", value: "Port 8056" },
+      { label: "Action", value: "SHUTDOWN" },
+    ],
+  });
+  if (!password) return;
+  const res = await postWithPassword("/system/shutdown", password);
+  if (!res) return;
+  showToast("Shutdown initiated — server stopping", "info");
 });
 
 document.getElementById("btn-health")?.addEventListener("click", async () => {

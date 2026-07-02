@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     wick_allocation_pct: float = Field(default=30.0, ge=0, le=100)
     ultra_allocation_pct: float = Field(default=40.0, ge=0, le=100)
 
+    # Dashboard trade confirmation (sensitive actions)
+    dashboard_trade_password: str = ""
+
     # Session schedule (IST)
     auto_startup_time: str = "08:30:00"
     pre_market_start: str = "09:00:00"
