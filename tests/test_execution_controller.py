@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tests.conftest import REAL_ORDER_ID, REAL_ORDER_ID_2, confirm_ok
+
 from app.core.state import AppState
 from app.execution.execution_controller import ExecutionController
 from app.execution.execution_models import ExecutionSignal
@@ -37,8 +39,8 @@ def _make_controller(state: AppState | None = None) -> ExecutionController:
     readiness = MagicMock()
     readiness.evaluate.return_value = MagicMock(ready=True, to_dict=lambda: {"ready": True})
     orders = AsyncMock()
-    orders.place_buy_order.return_value = {"success": True, "order_id": "O1"}
-    orders.confirm_order_execution.return_value = {"success": True, "executed_price": 100.0}
+    orders.place_buy_order.return_value = {"success": True, "order_id": REAL_ORDER_ID}
+    orders.confirm_order_execution.return_value = confirm_ok(100.0, 65)
     positions = AsyncMock()
     risk = RiskManager(state=state, locks=locks, scheduler=scheduler, readiness_gate=readiness)
     return ExecutionController(state, risk, locks, scheduler, readiness, orders, positions)
@@ -123,7 +125,8 @@ async def test_exit_all():
         "entry_price": 100, "option_side": "CE",
     })
     ctrl = _make_controller(state)
-    ctrl._orders.place_sell_order = AsyncMock(return_value={"success": True, "order_id": "E1"})
+    ctrl._orders.place_sell_order = AsyncMock(return_value={"success": True, "order_id": REAL_ORDER_ID_2})
+    ctrl._orders.confirm_order_execution = AsyncMock(return_value=confirm_ok(110.0, 65))
     ctrl._orders.confirm_order_execution = AsyncMock(return_value={"success": True, "executed_price": 110.0})
     results = await ctrl.exit_all(ExitReason.FORCE_EXIT)
     assert len(results) == 1

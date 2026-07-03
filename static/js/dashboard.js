@@ -515,7 +515,7 @@ function updateEngineIntelligence(name, intel, livePos) {
 
   const pos = livePos || {};
   const hasPos = pos && (pos.quantity || pos.entry_price);
-  set("engine-side", pos.option_side || "—");
+  set("engine-side", pos.action_label || (pos.option_side ? `BUY ${pos.option_side}` : "—"));
   set("engine-strike", pos.strike || "—");
   set("engine-lots", pos.lots || "—");
   set("engine-qty", pos.quantity || "—");
@@ -523,7 +523,7 @@ function updateEngineIntelligence(name, intel, livePos) {
   set("engine-ltp", pos.current_ltp != null ? Number(pos.current_ltp).toFixed(2) : "—");
   set("engine-trailing", pos.trailing_sl ? String(Number(pos.trailing_sl).toFixed(2)) : "OFF");
 
-  set("engine-pos-status", hasPos ? `${pos.option_side || ""} OPEN`.trim() : "FLAT");
+  set("engine-pos-status", hasPos ? `${pos.action_label || pos.option_side || ""} OPEN`.trim() : "FLAT");
   set("engine-pos-premium", pos.current_ltp != null ? Number(pos.current_ltp).toFixed(2) : "—");
   set("engine-pos-target", pos.target != null ? Number(pos.target).toFixed(2) : (intel.expected_target != null ? intel.expected_target.toFixed(2) : "—"));
   set("engine-pos-sl", pos.stop_loss != null ? Number(pos.stop_loss).toFixed(2) : (intel.expected_sl != null ? intel.expected_sl.toFixed(2) : "—"));
@@ -531,7 +531,11 @@ function updateEngineIntelligence(name, intel, livePos) {
 
   const livePnlEl = panel.querySelector(".engine-live-pnl");
   if (livePnlEl) {
-    if (hasPos && pos.entry_price != null && pos.current_ltp != null && pos.quantity) {
+    if (hasPos && pos.unrealized_pnl != null) {
+      const pnl = Number(pos.unrealized_pnl);
+      livePnlEl.textContent = formatCurrency(pnl);
+      livePnlEl.className = `engine-live-pnl ${pnlClass(pnl)}`;
+    } else if (hasPos && pos.entry_price != null && pos.current_ltp != null && pos.quantity) {
       const pnl = (Number(pos.current_ltp) - Number(pos.entry_price)) * Number(pos.quantity);
       livePnlEl.textContent = formatCurrency(pnl);
       livePnlEl.className = `engine-live-pnl ${pnlClass(pnl)}`;
@@ -540,6 +544,9 @@ function updateEngineIntelligence(name, intel, livePos) {
       livePnlEl.className = "engine-live-pnl neutral";
     }
   }
+
+  const pts = pos.points;
+  set("engine-points", hasPos && pts != null ? Number(pts).toFixed(2) : "—");
 
   const peak = pos.peak_profit;
   set("engine-peak-profit", peak != null && hasPos ? formatCurrency(peak) : "—");
@@ -1036,9 +1043,10 @@ function updateOrderMonitor(op) {
   tableEl?.classList.remove("hidden");
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val ?? "—"; };
   const br = order.broker_response || {};
+  const sideLabel = br.action_label || (br.option_side ? `BUY ${br.option_side}` : br.symbol || "—");
   set("om-engine", (order.engine || "—").toUpperCase());
   set("om-action", order.state || "—");
-  set("om-side", br.option_side || br.symbol || "—");
+  set("om-side", sideLabel);
   set("om-strike", br.strike ?? "—");
   set("om-qty", order.quantity || "—");
   set("om-price", order.executed_price != null ? Number(order.executed_price).toFixed(2) : "—");
@@ -1114,6 +1122,34 @@ function updateValidationStrip(op) {
 
   const recClean = recovery.status === "clean" || recovery.status === "unknown";
   set("val-recovery-status", `Recovery: ${(recovery.status || "unknown").toUpperCase()}`, recClean ? "ok" : "warn");
+
+  const desync = op?.broker_desync || {};
+  if (desync.critical) {
+    set("val-recovery-status", "CRITICAL DESYNC — app/broker mismatch", "warn");
+  }
+}
+
+function renderTradeLogEntries(entries) {
+  if (!entries?.length) return "No log entries yet.";
+  return entries.map((row) => {
+    const at = row.at ? new Date(row.at).toLocaleTimeString("en-IN", { hour12: false }) : "—";
+    const sym = row.symbol || "";
+    const side = row.side || "";
+    const evt = row.event || "—";
+    const qty = row.qty != null ? row.qty : "—";
+    const px = row.price != null ? Number(row.price).toFixed(2) : "—";
+    const oid = row.order_id || "";
+  const line = `${at} | ${(row.engine || "").toUpperCase()} | ${evt} | ${side} ${sym} | qty ${qty} @ ${px}${oid ? ` | ${oid}` : ""}`;
+    return `<span class="log-line log-exec">${line.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</span>`;
+  }).join("");
+}
+
+function updateTradeLogPanel(op) {
+  if (activeLogTab !== "trade" || logsPaused || logsCleared) return;
+  const output = document.getElementById("logs-output");
+  if (!output) return;
+  const entries = op?.trade_log || [];
+  output.innerHTML = renderTradeLogEntries(entries);
 }
 
 async function refreshOperator() {
@@ -1125,6 +1161,7 @@ async function refreshOperator() {
     updateValidationStrip(data);
     updateEngineHealth(data, window.__lastDashboardState);
     updateOrderMonitor(data);
+    updateTradeLogPanel(data);
     updateAlertTicker(window.__lastDashboardState, data, data.readiness);
     updateMarketSummary(window.__lastDashboardState, data);
     updateNiftyCard(window.__lastDashboardState, lastNiftyCandles, data);
@@ -1203,6 +1240,10 @@ function renderLogLines(lines) {
 
 async function refreshLogs() {
   if (logsPaused || logsCleared) return;
+  if (activeLogTab === "trade" && lastOperatorData?.trade_log) {
+    updateTradeLogPanel(lastOperatorData);
+    return;
+  }
   try {
     const res = await apiFetch(`/dashboard/logs?lines=120&log_type=${activeLogTab}`);
     if (!res.ok) return;

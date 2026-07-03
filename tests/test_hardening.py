@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tests.conftest import REAL_ORDER_ID, confirm_ok
+
 from app.broker.order_manager import OrderManager
 from app.broker.websocket_manager import WebSocketManager
 from app.core.sanitize import sanitize_broker_response
@@ -31,9 +33,13 @@ def test_sanitize_broker_response_strips_raw_payload():
 @pytest.mark.asyncio
 async def test_reconcile_order_fill_after_timeout():
     orders = OrderManager(MagicMock(), MagicMock())
-    orders.get_order_status = AsyncMock(return_value={"status": "complete", "orderid": "O1"})
-    orders.find_executed_price = AsyncMock(return_value=105.0)
-    result = await orders.reconcile_order_fill("O1")
+    orders.get_order_status = AsyncMock(return_value={
+        "status": "complete", "orderid": REAL_ORDER_ID, "averageprice": "105", "filledshares": "65",
+    })
+    orders.get_trade_book = AsyncMock(return_value=[{
+        "orderid": REAL_ORDER_ID, "transactiontype": "BUY", "fillprice": "105", "fillsize": "65",
+    }])
+    result = await orders.reconcile_order_fill(REAL_ORDER_ID, expected_qty=65)
     assert result["success"] is True
     assert result["reconciled"] is True
     assert result["executed_price"] == 105.0
@@ -53,11 +59,12 @@ async def test_buy_unknown_state_recovered_via_reconcile():
     readiness = MagicMock()
     readiness.evaluate.return_value = MagicMock(ready=True)
     orders = AsyncMock()
-    orders.place_buy_order.return_value = {"success": True, "order_id": "O1"}
+    orders.place_buy_order.return_value = {"success": True, "order_id": REAL_ORDER_ID}
     orders.confirm_order_execution.return_value = {"success": False, "message": "timeout"}
     orders.reconcile_order_fill.return_value = {
         "success": True,
         "executed_price": 55.0,
+        "filled_qty": 65,
         "reconciled": True,
         "message": "Reconciled fill after timeout",
     }

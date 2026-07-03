@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tests.conftest import REAL_ORDER_ID, confirm_ok
+
 from app.core.state import AppState
 from app.execution.execution_controller import ExecutionController
 from app.execution.signal_bridge import decision_to_signal
@@ -62,8 +64,8 @@ def _stack(supervised_auto: bool = False):
     locks = TradingLocks()
     risk = RiskManager(state=state, locks=locks, scheduler=scheduler, readiness_gate=readiness)
     orders = AsyncMock()
-    orders.place_buy_order.return_value = {"success": True, "order_id": "O-AUTO"}
-    orders.confirm_order_execution.return_value = {"success": True, "executed_price": 100.0}
+    orders.place_buy_order.return_value = {"success": True, "order_id": REAL_ORDER_ID}
+    orders.confirm_order_execution.return_value = confirm_ok(100.0, 65)
     ctrl = ExecutionController(
         state, risk, locks, scheduler, readiness, orders, AsyncMock(),
         manual_tracker=tracker, validation_service=svc,

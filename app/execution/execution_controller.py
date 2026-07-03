@@ -12,6 +12,7 @@ from app.broker.margin_manager import MarginManager
 from app.broker.order_manager import OrderManager
 from app.broker.position_manager import PositionManager
 from app.broker.readiness import BrokerReadinessGate
+from app.broker.broker_verify import is_valid_angel_order_id
 from app.core.clock import trading_now
 from app.core.logging import get_logger
 from app.core.state import AppState
@@ -392,14 +393,29 @@ class ExecutionController:
             return result
 
         order_id = str(response.get("order_id", ""))
+        if not is_valid_angel_order_id(order_id):
+            self._locks.release_duplicate_signal(sig_hash)
+            self._log_pipeline(
+                "8_angel_response", request_id, signal.engine, mode,
+                success=False, message="Invalid Angel order id", order_id=order_id, latency_ms=latency,
+            )
+            lifecycle.transition(ExecutionState.ORDER_REJECTED)
+            result = ExecutionResult(
+                request_id=request_id, engine=signal.engine, state=lifecycle.state,
+                message="Invalid Angel order id — not creating position",
+                broker_response=response, latency_ms=latency,
+            )
+            self._record(result)
+            return result
+
         self._log_pipeline(
             "8_angel_response", request_id, signal.engine, mode,
             success=True, order_id=order_id, latency_ms=latency,
         )
         lifecycle.transition(ExecutionState.ORDER_PENDING)
-        confirmed = await self._orders.confirm_order_execution(order_id)
+        confirmed = await self._orders.confirm_order_execution(order_id, expected_qty=qty)
         if not confirmed.get("success"):
-            confirmed = await self._orders.reconcile_order_fill(order_id)
+            confirmed = await self._orders.reconcile_order_fill(order_id, expected_qty=qty)
         if not confirmed.get("success"):
             self._locks.release_duplicate_signal(sig_hash)
             if confirmed.get("reconciled"):
@@ -421,7 +437,23 @@ class ExecutionController:
 
         lifecycle.transition(ExecutionState.ORDER_CONFIRMED)
         lifecycle.transition(ExecutionState.POSITION_ACTIVE)
-        exec_price = float(confirmed.get("executed_price") or signal.premium)
+        exec_price = float(confirmed.get("executed_price") or 0)
+        if exec_price <= 0:
+            self._locks.release_duplicate_signal(sig_hash)
+            lifecycle.transition(ExecutionState.ORDER_REJECTED)
+            result = ExecutionResult(
+                request_id=request_id, engine=signal.engine, state=lifecycle.state,
+                message="Broker fill not confirmed — no executed price",
+                order_id=order_id, broker_response=confirmed, latency_ms=latency,
+            )
+            self._state.append_execution_event(
+                "REJECT", signal.engine, order_id=order_id, tradingsymbol=signal.tradingsymbol,
+                quantity=qty, message=result.message,
+            )
+            self._record(result)
+            return result
+
+        filled_qty = int(confirmed.get("filled_qty") or qty)
         self._track_manual(signal.engine, "buy_order_confirmed")
         self._track_manual(signal.engine, "executed_price_captured")
         self._track_manual(signal.engine, "position_active")
@@ -433,7 +465,7 @@ class ExecutionController:
             "option_side": signal.option_side or "",
             "strike": signal.strike,
             "expiry": signal.expiry or "",
-            "quantity": qty,
+            "quantity": filled_qty,
             "lots": lots,
             "entry_price": exec_price,
             "current_ltp": exec_price,
@@ -441,6 +473,7 @@ class ExecutionController:
             "stop_loss": signal.stop_loss,
             "trailing_sl": signal.trailing_sl,
             "entry_order_id": order_id,
+            "broker_verified": True,
             "entry_at": datetime.now().isoformat(),
             "peak_profit": 0.0,
         }
@@ -452,7 +485,7 @@ class ExecutionController:
         result = ExecutionResult(
             request_id=request_id, engine=signal.engine, state=lifecycle.state,
             message="Order confirmed", order_id=order_id, executed_price=exec_price,
-            quantity=qty, latency_ms=latency, broker_response=confirmed,
+            quantity=filled_qty, latency_ms=latency, broker_response=confirmed,
         )
         self._log_pipeline(
             "9_position_active", request_id, signal.engine, mode,
@@ -553,6 +586,16 @@ class ExecutionController:
             self._recent_results = self._recent_results[-100:]
         self._state.set_execution_result(result.to_dict())
         self._audit.log_result(result)
+        ev = _execution_event_type(result.state, result.message)
+        if ev:
+            self._state.append_execution_event(
+                ev,
+                result.engine,
+                order_id=result.order_id,
+                quantity=result.quantity,
+                executed_price=result.executed_price,
+                message=result.message,
+            )
         self._track_manual(result.engine, "logs_created")
 
     def _expire_manual_approvals(self) -> None:
@@ -583,3 +626,20 @@ class ExecutionController:
         }
         logger.warning("EXEC_PIPELINE_STOPPED %s", payload)
         self._audit.log("exec_pipeline_stopped", payload)
+
+
+def _execution_event_type(state: ExecutionState, message: str) -> str | None:
+    val = state.value if hasattr(state, "value") else str(state)
+    if val == "POSITION_ACTIVE":
+        return "BUY"
+    if val == "EXIT_CONFIRMED":
+        return "EXIT"
+    if val == "ORDER_REJECTED":
+        return "REJECT"
+    if "stop" in (message or "").lower():
+        return "STOPLOSS"
+    if "target" in (message or "").lower():
+        return "TARGET"
+    if "trail" in (message or "").lower():
+        return "TRAIL"
+    return None

@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tests.conftest import REAL_ORDER_ID, REAL_ORDER_ID_2, confirm_ok
+
 from app.core.state import AppState
 from app.execution.execution_controller import ExecutionController
 from app.execution.execution_models import ExecutionSignal
@@ -47,8 +49,8 @@ def _ctrl(supervised_auto: bool = True) -> ExecutionController:
     readiness.evaluate.return_value = MagicMock(ready=True, checks=[])
     risk = RiskManager(state=state, locks=locks, scheduler=scheduler, readiness_gate=readiness)
     orders = AsyncMock()
-    orders.place_buy_order.return_value = {"success": True, "order_id": "O1"}
-    orders.confirm_order_execution.return_value = {"success": True, "executed_price": 100.0}
+    orders.place_buy_order.return_value = {"success": True, "order_id": REAL_ORDER_ID}
+    orders.confirm_order_execution.return_value = confirm_ok(100.0, 65)
     tracker = ManualValidationTracker()
     svc = ProductionValidationService(state, readiness, MagicMock(), MagicMock(), MagicMock(), scheduler, tracker)
     return ExecutionController(
@@ -84,7 +86,8 @@ async def test_rejected_auto_order_releases_duplicate_for_retry():
     ctrl._orders.place_buy_order.return_value = {"success": False, "message": "Rejected"}
     first = await ctrl.process_signal(_signal())
     assert first.state == ExecutionState.ORDER_REJECTED
-    ctrl._orders.place_buy_order.return_value = {"success": True, "order_id": "O2"}
+    ctrl._orders.place_buy_order.return_value = {"success": True, "order_id": REAL_ORDER_ID_2}
+    ctrl._orders.confirm_order_execution.return_value = confirm_ok(100.0, 65)
     second = await ctrl.process_signal(_signal())
     assert second.state == ExecutionState.POSITION_ACTIVE
     assert ctrl._orders.place_buy_order.await_count == 2

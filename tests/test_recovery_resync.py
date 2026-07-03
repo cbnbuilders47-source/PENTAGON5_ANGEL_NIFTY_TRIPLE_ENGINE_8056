@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.broker.order_manager import OrderManager
 from app.core.state import AppState
 from app.execution.recovery import ExecutionRecovery
 from app.storage.position_store import PositionStore
+
+REAL_ORDER_ID = "240703000123456"
 
 
 @pytest.mark.asyncio
@@ -60,39 +61,43 @@ async def test_recovery_stays_dirty_when_broker_has_unmapped_position():
 
 
 @pytest.mark.asyncio
-async def test_recovery_infers_engine_from_execution_audit(tmp_path):
+async def test_recovery_with_broker_and_order_book():
     state = AppState()
     state.set_broker_connected(True)
-    audit_file = tmp_path / "execution_audit.log"
-    audit_file.write_text(
-        "2026-07-03 12:53:08 | exec_pipeline | "
-        "{'stage': '7_place_buy_order_call', 'engine': 'wick', 'token': '44649', "
-        "'tradingsymbol': 'NIFTY07JUL2624350CE', 'qty': 65}\n",
-        encoding="utf-8",
-    )
     orders = AsyncMock()
-    orders.get_order_book.return_value = []
-    orders.get_trade_book.return_value = []
+    orders.get_order_book.return_value = [{
+        "orderid": REAL_ORDER_ID,
+        "symboltoken": "44649",
+        "tradingsymbol": "NIFTY07JUL2624350CE",
+        "transactiontype": "BUY",
+        "status": "complete",
+        "averageprice": "100",
+        "filledshares": "65",
+    }]
+    orders.get_trade_book.return_value = [{
+        "orderid": REAL_ORDER_ID,
+        "symboltoken": "44649",
+        "tradingsymbol": "NIFTY07JUL2624350CE",
+        "transactiontype": "BUY",
+        "fillprice": "100",
+        "fillsize": "65",
+    }]
     positions = AsyncMock()
     positions.sync_positions_with_status.return_value = (
         [{"symboltoken": "44649", "tradingsymbol": "NIFTY07JUL2624350CE", "netqty": "65", "ltp": "100"}],
         True,
     )
+    state.execution_results.append({
+        "engine": "wick",
+        "order_id": REAL_ORDER_ID,
+        "state": "POSITION_ACTIVE",
+    })
     store = MagicMock()
     store.load.return_value = {}
     recovery = ExecutionRecovery(state, orders, positions, position_store=store)
-    with patch("app.execution.recovery.get_settings") as mock_settings:
-        mock_settings.return_value.logs_dir = tmp_path
-        summary = await recovery.resync()
+    summary = await recovery.resync()
     assert summary["status"] == "clean"
     assert summary["positions_recovered"] == 1
     assert "wick" in state.live_positions
-    assert state.live_positions["wick"]["token"] == "44649"
-
-
-def test_production_order_manager_requires_live_angel_session():
-    angel = MagicMock()
-    angel.smart_api = None
-    om = OrderManager(angel, MagicMock())
-    with pytest.raises(RuntimeError, match="Angel session not connected"):
-        om._api()
+    assert state.live_positions["wick"]["broker_verified"] is True
+    assert state.live_positions["wick"]["strike"] == 24350

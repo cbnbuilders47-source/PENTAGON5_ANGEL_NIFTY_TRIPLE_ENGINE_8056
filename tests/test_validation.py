@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.conftest import REAL_ORDER_ID, REAL_ORDER_ID_2, confirm_ok
+
 from app.core.state import AppState
 from app.execution.execution_controller import ExecutionController
 from app.execution.execution_models import ExecutionSignal
@@ -143,8 +145,8 @@ def test_manual_validation_lifecycle():
             assert tracker.engine_status("normal")["steps"]["manual_approval_shown"]
 
             approval_id = list(ctrl.pending_manual.keys())[0]
-            ctrl._orders.place_buy_order.return_value = {"success": True, "order_id": "O1"}
-            ctrl._orders.confirm_order_execution.return_value = {"success": True, "executed_price": 55.0}
+            ctrl._orders.place_buy_order.return_value = {"success": True, "order_id": REAL_ORDER_ID}
+            ctrl._orders.confirm_order_execution.return_value = confirm_ok(55.0, 65)
             await ctrl.approve_manual(approval_id)
             assert tracker.engine_status("normal")["steps"]["user_approval_received"]
             assert tracker.engine_status("normal")["steps"]["position_active"]
@@ -152,8 +154,8 @@ def test_manual_validation_lifecycle():
             ctrl.on_position_ltp_updated("normal")
             assert tracker.engine_status("normal")["steps"]["ltp_updating"]
 
-            ctrl._orders.place_sell_order.return_value = {"success": True, "order_id": "O2"}
-            ctrl._orders.confirm_order_execution.return_value = {"success": True, "executed_price": 60.0}
+            ctrl._orders.place_sell_order.return_value = {"success": True, "order_id": REAL_ORDER_ID_2}
+            ctrl._orders.confirm_order_execution.return_value = confirm_ok(60.0, 65)
             await ctrl.exit_engine("normal")
             assert tracker.is_passed("normal")
 
@@ -196,6 +198,23 @@ async def test_recovery_status_clean():
             "quantity": 65,
         }
     }
+    orders.get_order_book.return_value = [{
+        "orderid": "240703000111111",
+        "symboltoken": "12345",
+        "tradingsymbol": "NIFTY24JUL25000CE",
+        "transactiontype": "BUY",
+        "status": "complete",
+        "averageprice": "100",
+        "filledshares": "65",
+    }]
+    orders.get_trade_book.return_value = [{
+        "orderid": "240703000111111",
+        "symboltoken": "12345",
+        "tradingsymbol": "NIFTY24JUL25000CE",
+        "transactiontype": "BUY",
+        "fillprice": "100",
+        "fillsize": "65",
+    }]
     recovery = ExecutionRecovery(state, orders, positions, position_store=store)
     summary = await recovery.recover()
     assert summary["status"] == "clean"
@@ -233,8 +252,8 @@ async def test_engine_reset_after_exit():
     })
     state.engines["normal"].open_positions = 1
     state.engines["normal"].status = EngineStatus.ACTIVE
-    ctrl._orders.place_sell_order.return_value = {"success": True, "order_id": "E1"}
-    ctrl._orders.confirm_order_execution.return_value = {"success": True, "executed_price": 55.0}
+    ctrl._orders.place_sell_order.return_value = {"success": True, "order_id": REAL_ORDER_ID_2}
+    ctrl._orders.confirm_order_execution.return_value = confirm_ok(55.0, 65)
     await ctrl.exit_engine("normal")
     assert "normal" not in state.live_positions
     assert state.engines["normal"].open_positions == 0

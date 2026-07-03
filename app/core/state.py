@@ -11,6 +11,7 @@ from app.core.constants import DEFAULT_ALLOCATIONS, ENGINE_NORMAL, ENGINE_ULTRA,
 from app.models.enums import BiasDirection, EngineOperatingMode, EngineStatus, MarketMode, SessionPhase
 
 MAX_TRADE_HISTORY = 500
+MAX_EXECUTION_EVENTS = 300
 
 
 @dataclass
@@ -75,6 +76,8 @@ class AppState:
     pending_approvals: list[dict] = field(default_factory=list)
     trade_history: list[dict] = field(default_factory=list)
     execution_results: list[dict] = field(default_factory=list)
+    execution_events: list[dict] = field(default_factory=list)
+    broker_desync: dict = field(default_factory=dict)
     recovery_summary: dict = field(default_factory=dict)
     nifty_ltp: float = 0.0
     nifty_change_pts: float = 0.0
@@ -245,6 +248,23 @@ class AppState:
             state_val = result.get("state", "")
             if state_val in ("ORDER_CONFIRMED", "POSITION_ACTIVE", "EXIT_CONFIRMED"):
                 self.last_order_at = datetime.now()
+            self.last_updated = datetime.now()
+
+    def append_execution_event(self, event_type: str, engine: str, **details: Any) -> None:
+        with self._lock:
+            self.execution_events.append({
+                "event": event_type,
+                "engine": engine,
+                "at": datetime.now().isoformat(),
+                **details,
+            })
+            if len(self.execution_events) > MAX_EXECUTION_EVENTS:
+                self.execution_events = self.execution_events[-MAX_EXECUTION_EVENTS:]
+            self.last_updated = datetime.now()
+
+    def set_broker_desync(self, desync: dict) -> None:
+        with self._lock:
+            self.broker_desync = desync
             self.last_updated = datetime.now()
 
     def record_trade(self, engine: str, pos: dict, exit_price: float, exit_order_id: str, pnl: float, reason: str) -> None:

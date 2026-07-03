@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from app.broker.broker_verify import extract_fill_details, is_valid_angel_order_id
 from app.broker.angel_manager import AngelManager
 from app.broker.rate_limit import RateLimitTracker
 from app.core.logging import get_logger, mask_sensitive
@@ -86,9 +87,21 @@ class OrderManager:
             try:
                 self._rate_limiter.record_call()
                 response = await asyncio.to_thread(self._api().placeOrder, params)
+                logger.info(
+                    "Angel placeOrder raw response_type=%s preview=%s",
+                    type(response).__name__,
+                    mask_sensitive(str(response)[:120]),
+                )
                 parsed = self._parse_place_order_response(response)
                 if parsed.get("success"):
                     order_id = parsed.get("order_id")
+                    if not is_valid_angel_order_id(order_id):
+                        return {
+                            "success": False,
+                            "message": "Invalid Angel order id",
+                            "reason": f"placeOrder returned non-broker order id: {order_id!r}",
+                            "response": response,
+                        }
                     logger.info(
                         "Angel placeOrder accepted order_id=%s symbol=%s qty=%s response_type=%s",
                         order_id, mask_sensitive(tradingsymbol), quantity, type(response).__name__,
@@ -173,35 +186,81 @@ class OrderManager:
             return float(status.get("averageprice") or status.get("price") or 0)
         return None
 
-    async def confirm_order_execution(self, order_id: str, max_wait_sec: float = 5.0) -> dict:
-        if not order_id:
-            return {"success": False, "message": "No order id"}
+    async def confirm_order_execution(
+        self,
+        order_id: str,
+        max_wait_sec: float = 5.0,
+        expected_qty: int | None = None,
+    ) -> dict:
+        if not is_valid_angel_order_id(order_id):
+            return {"success": False, "message": "Invalid order id", "reconciled": True}
         elapsed = 0.0
         while elapsed < max_wait_sec:
             status = await self.get_order_status(order_id)
+            if not status:
+                await asyncio.sleep(0.5)
+                elapsed += 0.5
+                continue
             order_status = str(status.get("status", "")).lower()
             if order_status in ("complete", "filled"):
-                price = await self.find_executed_price(order_id)
-                return {"success": True, "executed_price": price, "status": status}
+                trades = await self.get_trade_book()
+                fill = extract_fill_details(status, trades, order_id)
+                price = fill.get("executed_price") or 0
+                filled_qty = int(fill.get("filled_qty") or 0)
+                if price <= 0:
+                    return {"success": False, "message": "No executed price in Angel order book", "status": status}
+                if filled_qty <= 0:
+                    return {"success": False, "message": "No filled quantity in Angel order book", "status": status}
+                if expected_qty and filled_qty < expected_qty:
+                    return {
+                        "success": False,
+                        "message": f"Partial fill {filled_qty}/{expected_qty}",
+                        "status": status,
+                        "filled_qty": filled_qty,
+                    }
+                return {
+                    "success": True,
+                    "executed_price": price,
+                    "filled_qty": filled_qty,
+                    "status": status,
+                }
             if order_status in ("rejected", "cancelled"):
-                return {"success": False, "message": f"Order {order_status}", "status": status}
+                return {"success": False, "message": f"Order {order_status}", "status": status, "reconciled": True}
             await asyncio.sleep(0.5)
             elapsed += 0.5
         return {"success": False, "message": "Order confirmation timeout"}
 
-    async def reconcile_order_fill(self, order_id: str) -> dict:
+    async def reconcile_order_fill(self, order_id: str, expected_qty: int | None = None) -> dict:
         """One-shot broker reconciliation after confirm timeout."""
-        if not order_id:
-            return {"success": False, "message": "No order id", "reconciled": False}
+        if not is_valid_angel_order_id(order_id):
+            return {"success": False, "message": "Invalid order id", "reconciled": True}
         status = await self.get_order_status(order_id)
         if not status:
-            return {"success": False, "message": "Order not found in order book", "reconciled": False}
+            return {"success": False, "message": "Order not found in Angel order book", "reconciled": False}
         order_status = str(status.get("status", "")).lower()
         if order_status in ("complete", "filled"):
-            price = await self.find_executed_price(order_id)
+            trades = await self.get_trade_book()
+            fill = extract_fill_details(status, trades, order_id)
+            price = fill.get("executed_price") or 0
+            filled_qty = int(fill.get("filled_qty") or 0)
+            if price <= 0 or filled_qty <= 0:
+                return {
+                    "success": False,
+                    "message": "Order in book but fill not confirmed",
+                    "status": status,
+                    "reconciled": False,
+                }
+            if expected_qty and filled_qty < expected_qty:
+                return {
+                    "success": False,
+                    "message": f"Partial fill {filled_qty}/{expected_qty}",
+                    "status": status,
+                    "reconciled": False,
+                }
             return {
                 "success": True,
                 "executed_price": price,
+                "filled_qty": filled_qty,
                 "status": status,
                 "reconciled": True,
                 "message": "Reconciled fill after timeout",

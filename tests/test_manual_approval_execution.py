@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tests.conftest import REAL_ORDER_ID, REAL_ORDER_ID_2, confirm_ok
+
 from app.broker.order_manager import OrderManager
 from app.core.state import AppState
 from app.execution.execution_controller import ExecutionController
@@ -39,8 +41,8 @@ def _make_controller(state: AppState | None = None, orders: AsyncMock | None = N
     readiness.evaluate.return_value = MagicMock(ready=True, to_dict=lambda: {"ready": True})
     if orders is None:
         orders = AsyncMock()
-        orders.place_buy_order.return_value = {"success": True, "order_id": "O1"}
-        orders.confirm_order_execution.return_value = {"success": True, "executed_price": 100.0}
+        orders.place_buy_order.return_value = {"success": True, "order_id": REAL_ORDER_ID}
+        orders.confirm_order_execution.return_value = confirm_ok(100.0, 65)
     positions = AsyncMock()
     risk = RiskManager(state=state, locks=locks, scheduler=scheduler, readiness_gate=readiness)
     return ExecutionController(state, risk, locks, scheduler, readiness, orders, positions)

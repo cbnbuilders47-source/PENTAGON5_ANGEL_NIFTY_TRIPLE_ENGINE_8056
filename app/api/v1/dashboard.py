@@ -6,6 +6,11 @@ from pathlib import Path
 from fastapi import APIRouter, Query, Request
 
 from app.core.config import get_settings
+from app.dashboard.sync import (
+    build_enriched_live_positions,
+    build_latest_order_view,
+    build_trade_log_view,
+)
 from app.models.schemas import (
     AllocationResponse,
     BiasInfo,
@@ -27,6 +32,8 @@ async def get_state(request: Request) -> StateResponse:
     readiness_gate.evaluate()
     pending_approvals = exec_ctrl.get_pending_approvals()
     alloc = state.allocations
+    atm = request.app.state.atm_manager
+    enriched_positions = build_enriched_live_positions(state, atm.atm_strike)
     return StateResponse(
         session_phase=state.session_phase,
         broker_connected=state.broker_connected,
@@ -65,7 +72,7 @@ async def get_state(request: Request) -> StateResponse:
             for e in state.engines.values()
         ],
         engine_modes=dict(state.engine_modes),
-        live_positions=dict(state.live_positions),
+        live_positions=enriched_positions,
         pending_approvals=pending_approvals,
         nifty_ltp=state.nifty_ltp,
         nifty_change_pts=state.nifty_change_pts,
@@ -148,7 +155,9 @@ async def get_operator_diagnostics(request: Request) -> dict:
 
     exec_status = exec_ctrl.status()
     recent = exec_status.get("recent", [])
-    latest = recent[-1] if recent else None
+    latest = build_latest_order_view(state, exec_ctrl, atm.atm_strike)
+    trade_log = build_trade_log_view(state)
+    enriched_positions = build_enriched_live_positions(state, atm.atm_strike)
 
     uptime_sec = 0.0
     if state.started_at:
@@ -172,6 +181,9 @@ async def get_operator_diagnostics(request: Request) -> dict:
         "force_exit_active": sched.force_exit_active,
         "next_events": [e for e in sched.events_today if not e.get("fired")][:3],
         "latest_order": latest,
+        "trade_log": trade_log,
+        "live_positions": enriched_positions,
+        "broker_desync": dict(state.broker_desync),
         "execution_recent": recent[-8:],
         "last_order_at": state.last_order_at.isoformat() if state.last_order_at else None,
         "nifty_day_high": day_high,
