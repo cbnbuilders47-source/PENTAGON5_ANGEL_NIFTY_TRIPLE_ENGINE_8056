@@ -58,6 +58,8 @@ def test_resolve_atm_options(sample_master):
     master._resolve_nifty_index()
     master._loaded = True
 
-    ce, pe = master.resolve_atm_options(22010.0)
+    ce, pe, ce_sym, pe_sym = master.resolve_atm_options(22010.0)
     assert ce == "50001"
     assert pe == "50002"
+    assert ce_sym == "NIFTY24JUL22000CE"
+    assert pe_sym == "NIFTY24JUL22000PE"

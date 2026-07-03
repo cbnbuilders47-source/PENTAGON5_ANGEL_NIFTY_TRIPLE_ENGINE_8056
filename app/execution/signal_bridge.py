@@ -45,7 +45,12 @@ def decision_to_signal(
         )
 
     token = atm.ce_token if option_side == "CE" else atm.pe_token
+    tradingsymbol = atm.ce_tradingsymbol if option_side == "CE" else atm.pe_tradingsymbol
     if not token:
+        return None
+    if not tradingsymbol:
+        tradingsymbol = instruments.symbol_for_token(token) or ""
+    if not tradingsymbol:
         return None
 
     premium_candles = candles.get_candles(f"ATM_{option_side}")
@@ -55,7 +60,7 @@ def decision_to_signal(
         engine=engine,
         action=f"BUY_{option_side}" if option_side else action,
         symbol=f"ATM_{option_side}",
-        tradingsymbol=f"NIFTY{atm.atm_strike}{option_side}",
+        tradingsymbol=tradingsymbol,
         token=token,
         exchange="NFO",
         strike=atm.atm_strike,

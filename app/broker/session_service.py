@@ -75,11 +75,11 @@ class BrokerSessionService:
         if nifty_ltp is None:
             return {"success": False, "error": "Failed to fetch NIFTY LTP"}
 
-        ce_token, pe_token = self._instruments.resolve_atm_options(nifty_ltp)
+        ce_token, pe_token, ce_symbol, pe_symbol = self._instruments.resolve_atm_options(nifty_ltp)
         if not ce_token or not pe_token:
             return {"success": False, "error": "Failed to resolve ATM CE/PE tokens"}
 
-        self._atm.update(nifty_ltp, ce_token, pe_token)
+        self._atm.update(nifty_ltp, ce_token, pe_token, ce_symbol, pe_symbol)
 
         ws_ok = await self._ws.connect(
             jwt_token=self._tokens.jwt_token,
@@ -149,13 +149,13 @@ class BrokerSessionService:
         if symbol != "NIFTY":
             return
 
-        ce_token, pe_token = self._instruments.resolve_atm_options(price)
+        ce_token, pe_token, ce_symbol, pe_symbol = self._instruments.resolve_atm_options(price)
         if not ce_token or not pe_token:
             return
         if ce_token == self._atm.ce_token and pe_token == self._atm.pe_token:
             return
 
-        self._atm.update(price, ce_token, pe_token)
+        self._atm.update(price, ce_token, pe_token, ce_symbol, pe_symbol)
         self._ws.update_option_subscriptions(
             {
                 "ATM_CE": ("NFO", ce_token),

@@ -116,11 +116,11 @@ class ProductionValidationService:
             notes.append("Broker reconnect required — tokens/session invalid")
         if self._state.recovery_status.get("status") == "dirty":
             notes.append("Recovery check dirty — review open positions")
-        if not any_manual_passed:
+        if not any_manual_passed and not self._state.supervised_auto_enabled:
             notes.append("Complete manual validation cycle before AUTO")
 
-        ready_auto = manual_ready and any_manual_passed
-        if not any_manual_passed:
+        ready_auto = manual_ready and (any_manual_passed or self._state.supervised_auto_enabled)
+        if not any_manual_passed and not self._state.supervised_auto_enabled:
             ready_auto = False
 
         if manual_ready:
@@ -154,7 +154,7 @@ class ProductionValidationService:
         if not report.ready:
             return AutoGateResult(False, "Broker readiness incomplete")
 
-        if not self._manual.is_passed(engine):
+        if not self._manual.is_passed(engine) and not self._state.supervised_auto_enabled:
             return AutoGateResult(False, "Manual validation not completed")
 
         recovery = self._state.recovery_status

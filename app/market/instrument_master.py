@@ -80,32 +80,46 @@ class InstrumentMaster:
     def get_atm_strike(self, nifty_ltp: float) -> int:
         return int(round(nifty_ltp / 50) * 50)
 
-    def resolve_atm_options(self, nifty_ltp: float) -> tuple[str | None, str | None]:
+    def resolve_atm_options(self, nifty_ltp: float) -> tuple[str | None, str | None, str | None, str | None]:
+        """Return (ce_token, pe_token, ce_tradingsymbol, pe_tradingsymbol)."""
         if not self._loaded:
-            return None, None
+            return None, None, None, None
 
         strike = self.get_atm_strike(nifty_ltp)
         today = date.today()
         candidates = self._nearest_expiry_candidates(strike, today)
 
-        ce_token = None
-        pe_token = None
+        ce_token = pe_token = None
+        ce_symbol = pe_symbol = None
         for row in candidates:
             opt_type = row.get("symbol", "")[-2:].upper()
             if opt_type == "CE" and not ce_token:
                 ce_token = str(row["token"])
+                ce_symbol = str(row.get("symbol", "") or "")
             elif opt_type == "PE" and not pe_token:
                 pe_token = str(row["token"])
+                pe_symbol = str(row.get("symbol", "") or "")
 
         if not ce_token or not pe_token:
             for row in candidates:
                 symbol = row.get("symbol", "").upper()
                 if symbol.endswith("CE") and not ce_token:
                     ce_token = str(row["token"])
+                    ce_symbol = str(row.get("symbol", "") or "")
                 elif symbol.endswith("PE") and not pe_token:
                     pe_token = str(row["token"])
+                    pe_symbol = str(row.get("symbol", "") or "")
 
-        return ce_token, pe_token
+        return ce_token, pe_token, ce_symbol, pe_symbol
+
+    def symbol_for_token(self, token: str) -> str | None:
+        if not token:
+            return None
+        for row in self._instruments:
+            if str(row.get("token")) == str(token):
+                sym = row.get("symbol")
+                return str(sym) if sym else None
+        return None
 
     def _nearest_expiry_candidates(self, strike: int, today: date) -> list[dict]:
         rows = [

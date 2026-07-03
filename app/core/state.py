@@ -93,6 +93,7 @@ class AppState:
         "message": "Startup — recovery not run",
     })
     reconnect_status: dict = field(default_factory=dict)
+    supervised_auto_enabled: bool = False
     auto_validation_max_lots: dict[str, int] = field(default_factory=lambda: {
         ENGINE_NORMAL: 1,
         ENGINE_WICK: 1,

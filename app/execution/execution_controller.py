@@ -98,9 +98,11 @@ class ExecutionController:
 
         mode = self.get_engine_mode(signal.engine)
         self._audit.log("signal_received", {"request_id": request_id, "engine": signal.engine, "action": signal.action, "mode": mode.value})
+        self._log_pipeline("signal_received", request_id, signal.engine, mode.value, action=signal.action, symbol=signal.tradingsymbol, token=signal.token)
 
         block = self._check_gates(signal, mode, lifecycle)
         if block:
+            self._log_pipeline("gate_blocked", request_id, signal.engine, mode.value, reason=block, state=lifecycle.state.value)
             result = ExecutionResult(request_id=request_id, engine=signal.engine, state=lifecycle.state, message=block)
             self._record(result)
             return result
@@ -151,8 +153,9 @@ class ExecutionController:
             return result
 
         if mode == EngineOperatingMode.AUTO:
+            self._log_pipeline("auto_approved", request_id, signal.engine, mode.value, lots=lots, qty=qty, symbol=signal.tradingsymbol)
             lifecycle.transition(ExecutionState.APPROVED)
-            return await self._execute_live(request_id, signal, lifecycle, lots, qty)
+            return await self._execute_live(request_id, signal, lifecycle, lots, qty, mode.value)
 
         lifecycle.transition(ExecutionState.BLOCKED_BY_ENGINE_MODE)
         result = ExecutionResult(request_id=request_id, engine=signal.engine, state=lifecycle.state, message="Engine OFF")
@@ -181,7 +184,7 @@ class ExecutionController:
         self._state.clear_pending_approval(approval_id)
         self._track_manual(approval.engine, "user_approval_received")
         lifecycle.transition(ExecutionState.APPROVED)
-        return await self._execute_live(approval_id, approval.signal, lifecycle, approval.lots, approval.quantity)
+        return await self._execute_live(approval_id, approval.signal, lifecycle, approval.lots, approval.quantity, EngineOperatingMode.MANUAL.value)
 
     async def reject_manual(self, approval_id: str) -> ExecutionResult:
         self._pending_manual.pop(approval_id, None)
@@ -300,6 +303,7 @@ class ExecutionController:
         lifecycle: OrderLifecycle,
         lots: int,
         qty: int,
+        mode: str = "AUTO",
     ) -> ExecutionResult:
         start = time.perf_counter()
         lifecycle.transition(ExecutionState.ORDER_SENT)
@@ -313,7 +317,10 @@ class ExecutionController:
                 return ExecutionResult(request_id, signal.engine, ExecutionState.COMPLETED, "No position to exit")
             return await self._execute_exit(request_id, signal, pos)
 
-        side = "BUY"
+        self._log_pipeline(
+            "place_buy_order_call", request_id, signal.engine, mode,
+            tradingsymbol=signal.tradingsymbol, token=signal.token, exchange=signal.exchange, qty=qty,
+        )
         response = await self._orders.place_buy_order(
             tradingsymbol=signal.tradingsymbol,
             symboltoken=signal.token,
@@ -323,6 +330,10 @@ class ExecutionController:
 
         latency = (time.perf_counter() - start) * 1000
         if not response.get("success"):
+            self._log_pipeline(
+                "broker_rejected", request_id, signal.engine, mode,
+                message=response.get("message"), reason=response.get("reason"), latency_ms=latency,
+            )
             lifecycle.transition(ExecutionState.ORDER_REJECTED)
             result = ExecutionResult(
                 request_id=request_id, engine=signal.engine, state=lifecycle.state,
@@ -389,6 +400,10 @@ class ExecutionController:
             request_id=request_id, engine=signal.engine, state=lifecycle.state,
             message="Order confirmed", order_id=order_id, executed_price=exec_price,
             quantity=qty, latency_ms=latency, broker_response=confirmed,
+        )
+        self._log_pipeline(
+            "position_active", request_id, signal.engine, mode,
+            order_id=order_id, executed_price=exec_price, qty=qty,
         )
         self._record(result)
         return result
@@ -493,3 +508,8 @@ class ExecutionController:
         for k in expired:
             self._pending_manual.pop(k, None)
             self._state.clear_pending_approval(k)
+
+    def _log_pipeline(self, stage: str, request_id: str, engine: str, mode: str, **fields) -> None:
+        payload = {"stage": stage, "request_id": request_id, "engine": engine, "mode": mode, **fields}
+        logger.info("EXEC_PIPELINE %s", payload)
+        self._audit.log("exec_pipeline", payload)
