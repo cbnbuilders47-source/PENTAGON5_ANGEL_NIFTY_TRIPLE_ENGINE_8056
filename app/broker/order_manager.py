@@ -86,14 +86,16 @@ class OrderManager:
             try:
                 self._rate_limiter.record_call()
                 response = await asyncio.to_thread(self._api().placeOrder, params)
-                if response and response.get("status"):
-                    order_id = response.get("data", {}).get("orderid")
+                parsed = self._parse_place_order_response(response)
+                if parsed.get("success"):
+                    order_id = parsed.get("order_id")
                     logger.info(
-                        "Angel placeOrder accepted order_id=%s symbol=%s qty=%s",
-                        order_id, mask_sensitive(tradingsymbol), quantity,
+                        "Angel placeOrder accepted order_id=%s symbol=%s qty=%s response_type=%s",
+                        order_id, mask_sensitive(tradingsymbol), quantity, type(response).__name__,
                     )
-                    return {"success": True, "order_id": order_id, "response": response}
-                message, reason = self._describe_order_failure(response)
+                    return parsed
+                message = parsed.get("message", "Order failed")
+                reason = parsed.get("reason", message)
                 logger.error(
                     "Angel placeOrder failed attempt=%s reason=%s symbol=%s qty=%s response_type=%s",
                     attempt + 1, reason, mask_sensitive(tradingsymbol), quantity, type(response).__name__,
@@ -111,6 +113,23 @@ class OrderManager:
                     continue
                 return {"success": False, "message": err}
         return {"success": False, "message": "Order failed after retry"}
+
+    @staticmethod
+    def _parse_place_order_response(response: Any) -> dict[str, Any]:
+        """Normalize Angel SmartAPI placeOrder responses (dict or raw order-id string)."""
+        if isinstance(response, str):
+            order_id = response.strip()
+            if order_id:
+                return {"success": True, "order_id": order_id, "response": response}
+            return {"success": False, "message": "Empty response", "reason": "Angel placeOrder returned empty string", "response": response}
+        if isinstance(response, dict) and response.get("status"):
+            data = response.get("data") or {}
+            order_id = data.get("orderid") if isinstance(data, dict) else None
+            if not order_id:
+                order_id = response.get("orderid") or response.get("order_id")
+            return {"success": True, "order_id": str(order_id) if order_id else None, "response": response}
+        message, reason = OrderManager._describe_order_failure(response)
+        return {"success": False, "message": message, "reason": reason, "response": response}
 
     @staticmethod
     def _describe_order_failure(response: Any) -> tuple[str, str]:

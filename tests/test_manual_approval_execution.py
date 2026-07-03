@@ -155,6 +155,12 @@ def test_order_manager_describe_empty_dict():
     assert "empty dict" in reason
 
 
+def test_order_manager_parse_string_order_id():
+    parsed = OrderManager._parse_place_order_response("240703000123456")
+    assert parsed["success"] is True
+    assert parsed["order_id"] == "240703000123456"
+
+
 def test_order_manager_describe_status_false():
     msg, reason = OrderManager._describe_order_failure({"status": False, "message": "Invalid Token"})
     assert msg == "Invalid Token"
