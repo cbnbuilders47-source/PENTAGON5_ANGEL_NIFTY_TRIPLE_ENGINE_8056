@@ -66,15 +66,29 @@ class TradingLocks:
         return symbol.upper() in self._symbol_halt
 
     def register_duplicate_signal(self, signal_hash: str) -> bool:
-        """Return True if duplicate (blocked), False if new."""
+        """Return True if duplicate (blocked). Prefer is_duplicate_signal + mark_duplicate_signal."""
+        if self.is_duplicate_signal(signal_hash):
+            return True
+        self.mark_duplicate_signal(signal_hash)
+        return False
+
+    def is_duplicate_signal(self, signal_hash: str) -> bool:
+        """Return True if this signal hash is within the duplicate window."""
         now = datetime.now()
         with self._dup_lock:
             cutoff = now - timedelta(seconds=DUPLICATE_WINDOW_SEC)
             self._duplicate_hashes = {k: v for k, v in self._duplicate_hashes.items() if v > cutoff}
-            if signal_hash in self._duplicate_hashes:
-                return True
-            self._duplicate_hashes[signal_hash] = now
-            return False
+            return signal_hash in self._duplicate_hashes
+
+    def mark_duplicate_signal(self, signal_hash: str) -> None:
+        """Record a signal hash after an order is actually sent to the broker."""
+        with self._dup_lock:
+            self._duplicate_hashes[signal_hash] = datetime.now()
+
+    def release_duplicate_signal(self, signal_hash: str) -> None:
+        """Allow retry after a failed/rejected execution."""
+        with self._dup_lock:
+            self._duplicate_hashes.pop(signal_hash, None)
 
     def clear_duplicates(self) -> None:
         with self._dup_lock:

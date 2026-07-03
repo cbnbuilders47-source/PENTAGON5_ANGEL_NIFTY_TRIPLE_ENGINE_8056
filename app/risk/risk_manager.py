@@ -101,7 +101,7 @@ class RiskManager:
         if self._locks.is_symbol_halted(symbol):
             return False, f"Symbol {symbol} halted"
 
-        if signal_hash and self._locks.register_duplicate_signal(signal_hash):
+        if signal_hash and self._locks.is_duplicate_signal(signal_hash):
             return False, "Duplicate order signal blocked"
 
         if self._readiness:

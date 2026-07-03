@@ -5,8 +5,18 @@ from app.risk.locks import TradingLocks
 
 def test_duplicate_signal_blocked():
     locks = TradingLocks()
-    assert locks.register_duplicate_signal("abc") is False
+    assert locks.is_duplicate_signal("abc") is False
+    locks.mark_duplicate_signal("abc")
+    assert locks.is_duplicate_signal("abc") is True
     assert locks.register_duplicate_signal("abc") is True
+
+
+def test_duplicate_release_allows_retry():
+    locks = TradingLocks()
+    locks.mark_duplicate_signal("abc")
+    assert locks.is_duplicate_signal("abc") is True
+    locks.release_duplicate_signal("abc")
+    assert locks.is_duplicate_signal("abc") is False
 
 
 def test_kill_switch():

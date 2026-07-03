@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import time
 import uuid
 from datetime import datetime, timedelta
@@ -83,11 +84,20 @@ class ExecutionController:
         if mode == EngineOperatingMode.AUTO and self._validation:
             gate = self._validation.check_auto_allowed(engine)
             if not gate.allowed:
-                logger.warning("AUTO blocked for %s: %s", engine, gate.reason)
+                logger.warning(
+                    "AUTO blocked for %s: %s | engine_modes=%s | readiness_ready=%s",
+                    engine,
+                    gate.reason,
+                    self._state.engine_modes.get(engine),
+                    (self._state.readiness_report or {}).get("ready"),
+                )
                 return gate.reason
         previous = self.get_engine_mode(engine)
         self._state.set_engine_mode(engine, mode)
-        logger.info("Engine %s mode changed %s → %s", engine, previous.value, mode.value)
+        logger.info(
+            "Engine %s mode changed %s → %s | persisted=%s",
+            engine, previous.value, mode.value, self._state.engine_modes.get(engine),
+        )
         return None
 
     async def process_signal(self, signal: ExecutionSignal) -> ExecutionResult:
@@ -98,11 +108,15 @@ class ExecutionController:
 
         mode = self.get_engine_mode(signal.engine)
         self._audit.log("signal_received", {"request_id": request_id, "engine": signal.engine, "action": signal.action, "mode": mode.value})
-        self._log_pipeline("signal_received", request_id, signal.engine, mode.value, action=signal.action, symbol=signal.tradingsymbol, token=signal.token)
+        self._log_pipeline("1_signal_received", request_id, signal.engine, mode.value, action=signal.action, symbol=signal.tradingsymbol, token=signal.token)
+        self._log_pipeline(
+            "2_mode_verified", request_id, signal.engine, mode.value,
+            persisted_mode=self._state.engine_modes.get(signal.engine),
+        )
 
-        block = self._check_gates(signal, mode, lifecycle)
+        block = self._check_gates(signal, mode, lifecycle, request_id)
         if block:
-            self._log_pipeline("gate_blocked", request_id, signal.engine, mode.value, reason=block, state=lifecycle.state.value)
+            self._log_pipeline_stop("gate_check", request_id, signal.engine, mode.value, block)
             result = ExecutionResult(request_id=request_id, engine=signal.engine, state=lifecycle.state, message=block)
             self._record(result)
             return result
@@ -153,7 +167,7 @@ class ExecutionController:
             return result
 
         if mode == EngineOperatingMode.AUTO:
-            self._log_pipeline("auto_approved", request_id, signal.engine, mode.value, lots=lots, qty=qty, symbol=signal.tradingsymbol)
+            self._log_pipeline("6_auto_approved", request_id, signal.engine, mode.value, lots=lots, qty=qty, symbol=signal.tradingsymbol)
             lifecycle.transition(ExecutionState.APPROVED)
             return await self._execute_live(request_id, signal, lifecycle, lots, qty, mode.value)
 
@@ -175,7 +189,7 @@ class ExecutionController:
         lifecycle = OrderLifecycle()
         lifecycle.transition(ExecutionState.SIGNAL_RECEIVED)
         lifecycle.transition(ExecutionState.GATE_CHECKING)
-        block = self._check_gates(approval.signal, EngineOperatingMode.MANUAL, lifecycle, skip_duplicate=True)
+        block = self._check_gates(approval.signal, EngineOperatingMode.MANUAL, lifecycle, approval_id, skip_duplicate=True)
         if block:
             result = ExecutionResult(approval_id, approval.engine, lifecycle.state, block)
             self._record(result)
@@ -254,44 +268,73 @@ class ExecutionController:
             "engine_modes": self._state.engine_modes,
         }
 
-    def _check_gates(self, signal: ExecutionSignal, mode: EngineOperatingMode, lifecycle: OrderLifecycle, skip_duplicate: bool = False) -> str | None:
+    def _signal_hash(self, signal: ExecutionSignal) -> str:
+        return hashlib.md5(f"{signal.engine}|{signal.action}|{signal.token}".encode()).hexdigest()
+
+    def _check_gates(
+        self,
+        signal: ExecutionSignal,
+        mode: EngineOperatingMode,
+        lifecycle: OrderLifecycle,
+        request_id: str,
+        skip_duplicate: bool = False,
+    ) -> str | None:
         if mode == EngineOperatingMode.OFF:
             lifecycle.transition(ExecutionState.BLOCKED_BY_ENGINE_MODE)
             return "Engine OFF"
 
         if self._locks.kill_switch_active:
             lifecycle.transition(ExecutionState.BLOCKED_BY_RISK)
+            self._log_pipeline("3_risk_gate", request_id, signal.engine, mode.value, passed=False, reason="kill_switch")
             return "Kill switch active"
 
         if signal.action.startswith("BUY") and signal.engine in self._state.live_positions:
             lifecycle.transition(ExecutionState.BLOCKED_BY_RISK)
+            self._log_pipeline("3_risk_gate", request_id, signal.engine, mode.value, passed=False, reason="open_position")
             return f"Engine {signal.engine} already has open position"
 
         if self._state.force_exit_active and signal.action.startswith("BUY"):
             lifecycle.transition(ExecutionState.BLOCKED_BY_TIME)
+            self._log_pipeline("3_risk_gate", request_id, signal.engine, mode.value, passed=False, reason="force_exit")
             return "Force-exit window — entries blocked"
 
         now = trading_now()
         if signal.action.startswith("BUY") and not engine_new_entries_allowed(signal.engine, now):
             lifecycle.transition(ExecutionState.BLOCKED_BY_TIME)
             block_msg = special_no_entry_block_message(signal.engine, now)
+            self._log_pipeline("3_risk_gate", request_id, signal.engine, mode.value, passed=False, reason="session_schedule")
             return block_msg or "New entries blocked by session schedule"
 
-        sig_hash = hashlib.md5(f"{signal.engine}|{signal.action}|{signal.token}".encode()).hexdigest()
-        hash_arg = None if skip_duplicate else (sig_hash if signal.action.startswith("BUY") else None)
+        self._log_pipeline("3_risk_gate", request_id, signal.engine, mode.value, passed=True)
+
+        sig_hash = self._signal_hash(signal)
+        hash_arg = None
+        if not skip_duplicate and signal.action.startswith("BUY") and mode == EngineOperatingMode.AUTO:
+            hash_arg = sig_hash
+        if hash_arg and self._locks.is_duplicate_signal(hash_arg):
+            lifecycle.transition(ExecutionState.BLOCKED_BY_RISK)
+            self._log_pipeline("4_duplicate_gate", request_id, signal.engine, mode.value, passed=False, hash=hash_arg)
+            return "Duplicate order signal blocked"
+        self._log_pipeline("4_duplicate_gate", request_id, signal.engine, mode.value, passed=True, hash=hash_arg)
+
         allowed, reason = self._risk.can_open_position(signal.engine, signal.tradingsymbol, hash_arg)
         if not allowed and signal.action.startswith("BUY"):
             lifecycle.transition(ExecutionState.BLOCKED_BY_RISK)
+            self._log_pipeline("3_risk_gate", request_id, signal.engine, mode.value, passed=False, reason=reason)
             return reason
 
         if mode == EngineOperatingMode.AUTO or (mode == EngineOperatingMode.MANUAL and signal.action == "EXIT"):
             report = self._readiness.evaluate()
             if not report.ready and signal.action.startswith("BUY"):
                 lifecycle.transition(ExecutionState.BLOCKED_BY_BROKER)
-                return "Broker not ready"
+                failed = [c.name for c in report.checks if not c.passed]
+                self._log_pipeline("5_broker_gate", request_id, signal.engine, mode.value, passed=False, failed=failed)
+                return f"Broker not ready: {', '.join(failed)}"
+            self._log_pipeline("5_broker_gate", request_id, signal.engine, mode.value, passed=True, ready=report.ready)
 
         if self._state.broker_reconnect_required and signal.action.startswith("BUY"):
             lifecycle.transition(ExecutionState.BLOCKED_BY_BROKER)
+            self._log_pipeline("5_broker_gate", request_id, signal.engine, mode.value, passed=False, reason="reconnect_required")
             return "Broker reconnect required"
 
         return None
@@ -317,8 +360,11 @@ class ExecutionController:
                 return ExecutionResult(request_id, signal.engine, ExecutionState.COMPLETED, "No position to exit")
             return await self._execute_exit(request_id, signal, pos)
 
+        sig_hash = self._signal_hash(signal)
+        self._locks.mark_duplicate_signal(sig_hash)
+
         self._log_pipeline(
-            "place_buy_order_call", request_id, signal.engine, mode,
+            "7_place_buy_order_call", request_id, signal.engine, mode,
             tradingsymbol=signal.tradingsymbol, token=signal.token, exchange=signal.exchange, qty=qty,
         )
         response = await self._orders.place_buy_order(
@@ -330,10 +376,12 @@ class ExecutionController:
 
         latency = (time.perf_counter() - start) * 1000
         if not response.get("success"):
+            self._locks.release_duplicate_signal(sig_hash)
             self._log_pipeline(
-                "broker_rejected", request_id, signal.engine, mode,
-                message=response.get("message"), reason=response.get("reason"), latency_ms=latency,
+                "8_angel_response", request_id, signal.engine, mode,
+                success=False, message=response.get("message"), reason=response.get("reason"), latency_ms=latency,
             )
+            self._log_pipeline_stop("broker_order", request_id, signal.engine, mode, response.get("message", "Order rejected"))
             lifecycle.transition(ExecutionState.ORDER_REJECTED)
             result = ExecutionResult(
                 request_id=request_id, engine=signal.engine, state=lifecycle.state,
@@ -344,11 +392,16 @@ class ExecutionController:
             return result
 
         order_id = str(response.get("order_id", ""))
+        self._log_pipeline(
+            "8_angel_response", request_id, signal.engine, mode,
+            success=True, order_id=order_id, latency_ms=latency,
+        )
         lifecycle.transition(ExecutionState.ORDER_PENDING)
         confirmed = await self._orders.confirm_order_execution(order_id)
         if not confirmed.get("success"):
             confirmed = await self._orders.reconcile_order_fill(order_id)
         if not confirmed.get("success"):
+            self._locks.release_duplicate_signal(sig_hash)
             if confirmed.get("reconciled"):
                 lifecycle.transition(ExecutionState.ORDER_REJECTED)
                 result = ExecutionResult(
@@ -402,7 +455,7 @@ class ExecutionController:
             quantity=qty, latency_ms=latency, broker_response=confirmed,
         )
         self._log_pipeline(
-            "position_active", request_id, signal.engine, mode,
+            "9_position_active", request_id, signal.engine, mode,
             order_id=order_id, executed_price=exec_price, qty=qty,
         )
         self._record(result)
@@ -513,3 +566,20 @@ class ExecutionController:
         payload = {"stage": stage, "request_id": request_id, "engine": engine, "mode": mode, **fields}
         logger.info("EXEC_PIPELINE %s", payload)
         self._audit.log("exec_pipeline", payload)
+
+    def _log_pipeline_stop(self, stage: str, request_id: str, engine: str, mode: str, reason: str, **fields) -> None:
+        frame = inspect.currentframe()
+        caller = frame.f_back if frame else None
+        source = f"{caller.f_code.co_filename}:{caller.f_lineno}" if caller else "unknown"
+        payload = {
+            "stage": stage,
+            "stopped": True,
+            "request_id": request_id,
+            "engine": engine,
+            "mode": mode,
+            "reason": reason,
+            "source": source,
+            **fields,
+        }
+        logger.warning("EXEC_PIPELINE_STOPPED %s", payload)
+        self._audit.log("exec_pipeline_stopped", payload)

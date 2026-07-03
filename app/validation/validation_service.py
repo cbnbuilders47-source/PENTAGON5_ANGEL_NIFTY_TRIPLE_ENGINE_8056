@@ -152,7 +152,9 @@ class ProductionValidationService:
 
         report = self._readiness.evaluate()
         if not report.ready:
-            return AutoGateResult(False, "Broker readiness incomplete")
+            failed = [c.name for c in report.checks if not c.passed]
+            detail = ", ".join(failed) if failed else "unknown"
+            return AutoGateResult(False, f"Broker readiness incomplete: {detail}")
 
         if not self._manual.is_passed(engine) and not self._state.supervised_auto_enabled:
             return AutoGateResult(False, "Manual validation not completed")

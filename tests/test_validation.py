@@ -110,7 +110,7 @@ def test_auto_blocked_when_readiness_incomplete():
         tracker.mark("normal", step)
     svc._readiness.evaluate.return_value = MagicMock(ready=False, checks=[])
     reason = ctrl.set_engine_mode("normal", EngineOperatingMode.AUTO)
-    assert reason == "Broker readiness incomplete"
+    assert reason and reason.startswith("Broker readiness incomplete")
 
 
 def test_auto_api_returns_403_when_blocked(client):

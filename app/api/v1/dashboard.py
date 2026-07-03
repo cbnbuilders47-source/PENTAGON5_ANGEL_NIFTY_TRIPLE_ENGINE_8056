@@ -23,6 +23,8 @@ router = APIRouter()
 async def get_state(request: Request) -> StateResponse:
     state = request.app.state.app_state
     exec_ctrl = request.app.state.execution_controller
+    readiness_gate = request.app.state.readiness_gate
+    readiness_gate.evaluate()
     pending_approvals = exec_ctrl.get_pending_approvals()
     alloc = state.allocations
     return StateResponse(
