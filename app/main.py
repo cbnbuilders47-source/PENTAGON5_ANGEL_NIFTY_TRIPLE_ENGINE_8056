@@ -26,6 +26,7 @@ from app.core.startup_validator import validate_startup
 from app.core.state import get_app_state
 from app.execution.execution_controller import ExecutionController
 from app.execution.recovery import ExecutionRecovery
+from app.storage.engine_mode_store import EngineModeStore
 from app.risk.exit_monitor import ExitMonitor
 from app.validation.manual_tracker import ManualValidationTracker
 from app.validation.validation_service import ProductionValidationService
@@ -61,6 +62,9 @@ async def lifespan(app: FastAPI):
                 logger.warning("Startup check failed: %s — %s", check.name, check.message)
 
     app_state = get_app_state()
+    stored_modes = EngineModeStore().load()
+    if stored_modes:
+        app_state.hydrate_engine_modes(stored_modes)
     token_manager = TokenManager()
     angel_manager = AngelManager(settings, token_manager)
     websocket_manager = WebSocketManager()

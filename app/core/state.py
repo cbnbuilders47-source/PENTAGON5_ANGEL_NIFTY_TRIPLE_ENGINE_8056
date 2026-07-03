@@ -8,7 +8,11 @@ from datetime import datetime
 from typing import Any
 
 from app.core.constants import DEFAULT_ALLOCATIONS, ENGINE_NORMAL, ENGINE_ULTRA, ENGINE_WICK
+from app.core.logging import get_logger
 from app.models.enums import BiasDirection, EngineOperatingMode, EngineStatus, MarketMode, SessionPhase
+from app.storage.engine_mode_store import EngineModeStore
+
+logger = get_logger(__name__)
 
 MAX_TRADE_HISTORY = 500
 MAX_EXECUTION_EVENTS = 300
@@ -196,10 +200,46 @@ class AppState:
             val = self.engine_modes.get(engine, EngineOperatingMode.MONITOR.value)
             return EngineOperatingMode(val)
 
-    def set_engine_mode(self, engine: str, mode: EngineOperatingMode) -> None:
+    def set_engine_mode(self, engine: str, mode: EngineOperatingMode, *, caller: str = "unknown") -> None:
         with self._lock:
+            old = self.engine_modes.get(engine, EngineOperatingMode.MONITOR.value)
             self.engine_modes[engine] = mode.value
             self.last_updated = datetime.now()
+            logger.info(
+                "MODE WRITE engine=%s old=%s new=%s state_id=%s thread=%s caller=%s",
+                engine,
+                old,
+                mode.value,
+                id(self),
+                threading.current_thread().name,
+                caller,
+            )
+            EngineModeStore().save(dict(self.engine_modes))
+
+    def log_engine_modes_read(self, *, caller: str = "unknown") -> None:
+        with self._lock:
+            for eng, val in self.engine_modes.items():
+                logger.debug(
+                    "MODE READ engine=%s value=%s state_id=%s caller=%s",
+                    eng,
+                    val,
+                    id(self),
+                    caller,
+                )
+
+    def hydrate_engine_modes(self, stored: dict[str, str]) -> None:
+        """Apply persisted engine modes at startup (operator settings)."""
+        if not stored:
+            return
+        with self._lock:
+            for engine, mode in stored.items():
+                if mode in {m.value for m in EngineOperatingMode}:
+                    self.engine_modes[engine] = mode
+            logger.info(
+                "MODE HYDRATE state_id=%s modes=%s",
+                id(self),
+                dict(self.engine_modes),
+            )
 
     def set_live_position(self, engine: str, position: dict) -> None:
         with self._lock:

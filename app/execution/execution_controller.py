@@ -94,11 +94,15 @@ class ExecutionController:
                 )
                 return gate.reason
         previous = self.get_engine_mode(engine)
-        self._state.set_engine_mode(engine, mode)
+        caller = f"execution_controller.py:set_engine_mode"
+        self._state.set_engine_mode(engine, mode, caller=caller)
+        persisted = self._state.engine_modes.get(engine)
         logger.info(
-            "Engine %s mode changed %s → %s | persisted=%s",
-            engine, previous.value, mode.value, self._state.engine_modes.get(engine),
+            "Engine %s mode changed %s → %s | persisted=%s | state_id=%s",
+            engine, previous.value, mode.value, persisted, id(self._state),
         )
+        if persisted != mode.value:
+            return f"Mode persist failed — expected {mode.value}, got {persisted}"
         return None
 
     async def process_signal(self, signal: ExecutionSignal) -> ExecutionResult:

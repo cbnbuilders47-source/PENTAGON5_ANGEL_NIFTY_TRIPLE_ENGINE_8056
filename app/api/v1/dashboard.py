@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, Query, Request
 
 from app.core.config import get_settings
+from app.core.logging import get_logger
 from app.dashboard.sync import (
     build_enriched_live_positions,
     build_latest_order_view,
@@ -22,6 +23,7 @@ from app.models.schemas import (
 )
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 
 @router.get("/state", response_model=StateResponse)
@@ -30,6 +32,13 @@ async def get_state(request: Request) -> StateResponse:
     exec_ctrl = request.app.state.execution_controller
     readiness_gate = request.app.state.readiness_gate
     readiness_gate.evaluate()
+    state.log_engine_modes_read(caller="dashboard.py:get_state")
+    if id(state) != id(exec_ctrl._state):
+        logger.error(
+            "MODE STATE DESYNC dashboard_state=%s execution_controller_state=%s",
+            id(state),
+            id(exec_ctrl._state),
+        )
     pending_approvals = exec_ctrl.get_pending_approvals()
     alloc = state.allocations
     atm = request.app.state.atm_manager

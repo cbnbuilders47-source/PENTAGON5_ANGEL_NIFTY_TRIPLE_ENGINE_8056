@@ -15,10 +15,29 @@ class EngineModeRequest(BaseModel):
 @router.post("/{engine}/mode")
 async def set_engine_mode(request: Request, engine: str, body: EngineModeRequest) -> dict:
     ctrl = request.app.state.execution_controller
+    state = request.app.state.app_state
     block_reason = ctrl.set_engine_mode(engine, body.mode)
     if block_reason:
-        raise HTTPException(status_code=403, detail={"reason": block_reason, "engine": engine, "mode": body.mode.value})
-    return {"engine": engine, "mode": body.mode.value}
+        raise HTTPException(
+            status_code=403,
+            detail={"reason": block_reason, "engine": engine, "mode": body.mode.value},
+        )
+    persisted = ctrl.get_engine_mode(engine).value
+    if persisted != body.mode.value:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "reason": f"Mode not persisted — expected {body.mode.value}, got {persisted}",
+                "engine": engine,
+                "state_id": id(state),
+            },
+        )
+    return {
+        "engine": engine,
+        "mode": persisted,
+        "state_id": id(state),
+        "engine_modes": dict(state.engine_modes),
+    }
 
 
 @router.post("/{engine}/start")

@@ -1502,8 +1502,15 @@ async function setEngineMode(engine, mode, previousMode = null) {
     }
     if (res.ok) {
       const data = await res.json();
-      syncEngineModeUI(engine, data.mode || mode);
-      showToast(`${engine} → ${data.mode || mode}`, "ok");
+      const confirmed = data.mode || mode;
+      syncEngineModeUI(engine, confirmed);
+      if (data.engine_modes) {
+        window.__lastDashboardState = {
+          ...(window.__lastDashboardState || {}),
+          engine_modes: data.engine_modes,
+        };
+      }
+      showToast(`${engine} → ${confirmed}`, "ok");
       await refreshState();
       return true;
     }
