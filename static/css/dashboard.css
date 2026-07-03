@@ -648,6 +648,26 @@ body.terminal {
 .footer-sep { margin: 0 6px; }
 
 /* ── Password confirmation modal ── */
+body.dashboard-locked .glow-bg,
+body.dashboard-locked .top-header,
+body.dashboard-locked .validation-strip,
+body.dashboard-locked .master-bar,
+body.dashboard-locked main,
+body.dashboard-locked .footer,
+body.dashboard-locked #alert-ticker,
+body.dashboard-locked #manual-approvals,
+body.dashboard-locked #toast {
+  pointer-events: none;
+  user-select: none;
+  filter: blur(3px);
+}
+body.dashboard-locked #password-modal {
+  pointer-events: auto;
+  filter: none;
+}
+.password-modal.hidden {
+  display: none;
+}
 .password-modal {
   position: fixed;
   inset: 0;

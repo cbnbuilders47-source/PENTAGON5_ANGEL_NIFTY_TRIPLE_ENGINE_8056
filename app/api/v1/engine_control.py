@@ -3,7 +3,6 @@
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from app.core.trade_password import require_trade_password
 from app.models.enums import EngineOperatingMode, ExitReason
 
 router = APIRouter()
@@ -11,17 +10,10 @@ router = APIRouter()
 
 class EngineModeRequest(BaseModel):
     mode: EngineOperatingMode
-    password: str | None = None
-
-
-class PasswordBody(BaseModel):
-    password: str | None = None
 
 
 @router.post("/{engine}/mode")
 async def set_engine_mode(request: Request, engine: str, body: EngineModeRequest) -> dict:
-    if body.mode == EngineOperatingMode.AUTO:
-        require_trade_password(request, body.password, f"engine_mode_auto:{engine}")
     ctrl = request.app.state.execution_controller
     block_reason = ctrl.set_engine_mode(engine, body.mode)
     if block_reason:
@@ -44,7 +36,6 @@ async def stop_engine(request: Request, engine: str) -> dict:
 
 
 @router.post("/{engine}/exit")
-async def exit_engine(request: Request, engine: str, body: PasswordBody) -> dict:
-    require_trade_password(request, body.password, f"engine_exit:{engine}")
+async def exit_engine(request: Request, engine: str) -> dict:
     result = await request.app.state.execution_controller.exit_engine(engine, ExitReason.MANUAL)
     return result.to_dict() if result else {"message": "no result"}

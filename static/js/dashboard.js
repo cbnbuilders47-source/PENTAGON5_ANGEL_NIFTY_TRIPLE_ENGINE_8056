@@ -1331,13 +1331,14 @@ function closePasswordModal(result = null) {
   }
 }
 
-function showPasswordModal({ title, summary, details = [] }) {
+function showPasswordModal({ title, summary, details = [], hideCancel = false, error = "" }) {
   return new Promise((resolve) => {
     const modal = document.getElementById("password-modal");
     const titleEl = document.getElementById("pwd-modal-title");
     const summaryEl = document.getElementById("pwd-modal-summary");
     const detailsEl = document.getElementById("pwd-modal-details");
     const input = document.getElementById("pwd-modal-input");
+    const cancelBtn = document.getElementById("pwd-modal-cancel");
     if (!modal || !titleEl || !summaryEl || !detailsEl || !input) {
       resolve(null);
       return;
@@ -1345,11 +1346,14 @@ function showPasswordModal({ title, summary, details = [] }) {
     passwordModalResolver = resolve;
     titleEl.textContent = title || "Confirm Action";
     summaryEl.textContent = summary || "—";
-    detailsEl.innerHTML = details.map((d) => `
+    detailsEl.innerHTML = details.length
+      ? details.map((d) => `
       <div class="pwd-detail"><span>${d.label}</span><b>${d.value ?? "—"}</b></div>
-    `).join("");
+    `).join("")
+      : "";
+    if (cancelBtn) cancelBtn.classList.toggle("hidden", hideCancel);
     input.value = "";
-    setPasswordModalError("");
+    setPasswordModalError(error);
     modal.classList.remove("hidden");
     setTimeout(() => input.focus(), 50);
   });
@@ -1361,7 +1365,7 @@ document.getElementById("pwd-modal-confirm")?.addEventListener("click", () => {
   const input = document.getElementById("pwd-modal-input");
   const password = input?.value || "";
   if (!password) {
-    setPasswordModalError("Password confirmation failed");
+    setPasswordModalError("Password verification failed");
     return;
   }
   closePasswordModal(password);
@@ -1377,38 +1381,56 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-async function requestTradePassword(options) {
+async function requestDashboardPassword(options) {
   return showPasswordModal(options);
 }
 
-async function postWithPassword(path, password, extraBody = {}, method = "POST") {
+async function postDashboardPassword(path, password) {
   const res = await apiFetch(path, {
-    method,
+    method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...extraBody, password }),
+    body: JSON.stringify({ password }),
   });
   if (res.status === 403) {
-    const data = await res.json().catch(() => ({}));
-    const msg = data.detail || "Password confirmation failed";
-    showToast(typeof msg === "string" ? msg : "Password confirmation failed", "error");
-    return null;
+    return false;
   }
-  return res;
+  return res.ok;
+}
+
+async function requireDashboardWakeup() {
+  document.body.classList.add("dashboard-locked");
+  let lastError = "";
+  while (true) {
+    const password = await requestDashboardPassword({
+      title: "Start PENTAGON5 Dashboard?",
+      summary: "Enter Dashboard Password.",
+      hideCancel: true,
+      error: lastError,
+    });
+    if (!password) {
+      lastError = "Password verification failed";
+      continue;
+    }
+    const ok = await postDashboardPassword("/system/wakeup", password);
+    if (ok) {
+      document.body.classList.remove("dashboard-locked");
+      return true;
+    }
+    lastError = "Password verification failed";
+  }
 }
 
 // ── Engine mode controls ───────────────────────────────────
 
-async function setEngineMode(engine, mode, password = null) {
-  const body = { mode };
-  if (password) body.password = password;
+async function setEngineMode(engine, mode) {
   const res = await apiFetch(`/engine/${engine}/mode`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ mode }),
   });
   if (res.status === 403) {
     const data = await res.json();
-    const reason = data.detail?.reason || data.detail || "Password confirmation failed";
+    const reason = data.detail?.reason || data.detail || "Action blocked";
     showToast(`${engine}: ${reason}`, "error");
     refreshState();
     return false;
@@ -1417,41 +1439,16 @@ async function setEngineMode(engine, mode, password = null) {
   return false;
 }
 
-async function promptEngineMode(engine, mode) {
-  if (mode !== "AUTO") {
-    await setEngineMode(engine, mode);
-    return;
-  }
-  const password = await requestTradePassword({
-    title: "Enable AUTO Mode",
-    summary: `Enable AUTO trading for ${engine.toUpperCase()} engine?`,
-    details: [
-      { label: "Engine", value: engine.toUpperCase() },
-      { label: "Mode", value: "AUTO" },
-    ],
-  });
-  if (!password) return;
-  await setEngineMode(engine, mode, password);
-}
-
 document.querySelectorAll(".mode-select").forEach((sel) => {
   sel.addEventListener("change", () => {
     const mode = sel.value;
-    if (mode === "AUTO") {
-      const prev = sel.dataset.lastMode || "MONITOR";
-      sel.value = prev;
-      promptEngineMode(sel.dataset.engine, "AUTO").then((ok) => {
-        if (ok !== false) sel.dataset.lastMode = "AUTO";
-      });
-      return;
-    }
     sel.dataset.lastMode = mode;
     setEngineMode(sel.dataset.engine, mode);
   });
 });
 
 document.querySelectorAll(".eng-btn-auto").forEach((btn) => {
-  btn.addEventListener("click", () => promptEngineMode(btn.dataset.engine, "AUTO"));
+  btn.addEventListener("click", () => setEngineMode(btn.dataset.engine, "AUTO"));
 });
 document.querySelectorAll(".eng-btn-manual").forEach((btn) => {
   btn.addEventListener("click", () => setEngineMode(btn.dataset.engine, "MANUAL"));
@@ -1471,16 +1468,11 @@ document.querySelectorAll(".eng-btn-start").forEach((btn) => {
 document.querySelectorAll(".eng-btn-exit").forEach((btn) => {
   btn.addEventListener("click", async () => {
     const engine = btn.dataset.engine;
-    const password = await requestTradePassword({
-      title: "Engine Exit",
-      summary: `Confirm live exit for ${engine.toUpperCase()} engine?`,
-      details: [{ label: "Engine", value: engine.toUpperCase() }, { label: "Action", value: "EXIT" }],
-    });
-    if (!password) return;
-    const res = await postWithPassword(`/engine/${engine}/exit`, password);
-    if (!res) return;
-    showToast(`${engine} exit sent`, "info");
-    refreshState();
+    const res = await apiFetch(`/engine/${engine}/exit`, { method: "POST" });
+    if (res.ok) {
+      showToast(`${engine} exit sent`, "info");
+      refreshState();
+    }
   });
 });
 
@@ -1503,25 +1495,15 @@ function updateManualApprovals(approvals) {
 }
 
 async function approveManual(id) {
-  const approval = pendingApprovalsMap[id] || {};
-  const isExit = String(approval.action || "").toUpperCase().includes("EXIT");
-  const password = await requestTradePassword({
-    title: isExit ? "Manual EXIT Approval" : "Manual BUY Approval",
-    summary: isExit ? "Confirm live SELL / exit order?" : "Confirm live BUY order?",
-    details: [
-      { label: "Engine", value: (approval.engine || "—").toUpperCase() },
-      { label: "Action", value: approval.action || "—" },
-      { label: "Side", value: approval.option_side || "—" },
-      { label: "Strike", value: approval.strike ?? "—" },
-      { label: "Qty", value: approval.quantity ?? "—" },
-      { label: "Est. Amount", value: formatEstimatedAmount(approval.premium, approval.quantity) },
-    ],
+  const res = await apiFetch("/execution/manual/approve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ approval_id: id }),
   });
-  if (!password) return;
-  const res = await postWithPassword("/execution/manual/approve", password, { approval_id: id });
-  if (!res) return;
-  showToast("Order approved", "ok");
-  refreshState();
+  if (res.ok) {
+    showToast("Order approved", "ok");
+    refreshState();
+  }
 }
 async function rejectManual(id) {
   await apiFetch("/execution/manual/reject", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approval_id: id }) });
@@ -1533,16 +1515,11 @@ window.rejectManual = rejectManual;
 // ── Master bar actions ─────────────────────────────────────
 
 document.getElementById("btn-exit-all")?.addEventListener("click", async () => {
-  const password = await requestTradePassword({
-    title: "Emergency Exit All",
-    summary: "Confirm emergency exit for all open positions?",
-    details: [{ label: "Action", value: "EXIT ALL" }],
-  });
-  if (!password) return;
-  const res = await postWithPassword("/execution/exit-all", password);
-  if (!res) return;
-  showToast("Emergency exit all triggered", "error");
-  refreshState();
+  const res = await apiFetch("/execution/exit-all", { method: "POST" });
+  if (res.ok) {
+    showToast("Emergency exit all triggered", "error");
+    refreshState();
+  }
 });
 
 document.getElementById("btn-download-report")?.addEventListener("click", () => {
@@ -1555,17 +1532,16 @@ document.getElementById("btn-restart")?.addEventListener("click", async () => {
 });
 
 document.getElementById("btn-exit-server")?.addEventListener("click", async () => {
-  const password = await requestTradePassword({
-    title: "Exit Server",
-    summary: "Are you sure you want to stop the dashboard server?",
-    details: [
-      { label: "Service", value: "Port 8056" },
-      { label: "Action", value: "SHUTDOWN" },
-    ],
+  const password = await requestDashboardPassword({
+    title: "Stop PENTAGON5 Dashboard?",
+    summary: "Enter Dashboard Password.",
   });
   if (!password) return;
-  const res = await postWithPassword("/system/shutdown", password);
-  if (!res) return;
+  const ok = await postDashboardPassword("/system/shutdown", password);
+  if (!ok) {
+    showToast("Password verification failed", "error");
+    return;
+  }
   showToast("Shutdown initiated — server stopping", "info");
 });
 
@@ -1659,4 +1635,6 @@ function init() {
 }
 
 window.addEventListener("resize", scheduleChartResize);
-init();
+requireDashboardWakeup().then((unlocked) => {
+  if (unlocked) init();
+});

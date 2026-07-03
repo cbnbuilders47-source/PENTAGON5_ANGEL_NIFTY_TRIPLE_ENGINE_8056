@@ -85,8 +85,9 @@ class ExecutionController:
             if not gate.allowed:
                 logger.warning("AUTO blocked for %s: %s", engine, gate.reason)
                 return gate.reason
+        previous = self.get_engine_mode(engine)
         self._state.set_engine_mode(engine, mode)
-        logger.info("Engine %s mode set to %s", engine, mode.value)
+        logger.info("Engine %s mode changed %s → %s", engine, previous.value, mode.value)
         return None
 
     async def process_signal(self, signal: ExecutionSignal) -> ExecutionResult:
