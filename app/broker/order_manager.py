@@ -69,7 +69,18 @@ class OrderManager:
             "duration": "DAY",
             "quantity": str(quantity),
         }
-        logger.info("Placing %s order %s qty=%s", transactiontype, mask_sensitive(tradingsymbol), quantity)
+        safe_params = {
+            "variety": params["variety"],
+            "tradingsymbol": mask_sensitive(tradingsymbol),
+            "symboltoken": mask_sensitive(symboltoken),
+            "transactiontype": transactiontype,
+            "exchange": exchange,
+            "ordertype": params["ordertype"],
+            "producttype": producttype,
+            "duration": params["duration"],
+            "quantity": quantity,
+        }
+        logger.info("Angel placeOrder request: %s", safe_params)
 
         for attempt in range(2):
             try:
@@ -77,13 +88,21 @@ class OrderManager:
                 response = await asyncio.to_thread(self._api().placeOrder, params)
                 if response and response.get("status"):
                     order_id = response.get("data", {}).get("orderid")
+                    logger.info(
+                        "Angel placeOrder accepted order_id=%s symbol=%s qty=%s",
+                        order_id, mask_sensitive(tradingsymbol), quantity,
+                    )
                     return {"success": True, "order_id": order_id, "response": response}
-                message = response.get("message", "Order failed") if response else "Empty response"
+                message, reason = self._describe_order_failure(response)
+                logger.error(
+                    "Angel placeOrder failed attempt=%s reason=%s symbol=%s qty=%s response_type=%s",
+                    attempt + 1, reason, mask_sensitive(tradingsymbol), quantity, type(response).__name__,
+                )
                 if any(e in message.lower() for e in RETRYABLE_ERRORS) and attempt == 0:
                     await asyncio.sleep(1)
                     continue
                 self._rate_limiter.record_rate_limit_error()
-                return {"success": False, "message": message, "response": response}
+                return {"success": False, "message": message, "reason": reason, "response": response}
             except Exception as exc:
                 err = str(exc)
                 logger.exception("Order placement error: %s", err)
@@ -92,6 +111,25 @@ class OrderManager:
                     continue
                 return {"success": False, "message": err}
         return {"success": False, "message": "Order failed after retry"}
+
+    @staticmethod
+    def _describe_order_failure(response: Any) -> tuple[str, str]:
+        """Return operator message and detailed reason for failed placeOrder."""
+        if response is None:
+            return "Empty response", "Angel placeOrder returned None"
+        if response is False:
+            return "Empty response", "Angel placeOrder returned False"
+        if not isinstance(response, dict):
+            return "Empty response", f"Angel placeOrder returned {type(response).__name__}"
+        if not response:
+            return "Empty response", "Angel placeOrder returned empty dict"
+        if not response.get("status"):
+            detail = response.get("message") or response.get("errorcode") or response.get("errorCode")
+            if not detail and response.get("data"):
+                detail = str(response.get("data"))
+            reason = f"Angel placeOrder status=False: {detail or 'no message'}"
+            return detail or "Order failed", reason
+        return "Order failed", "Angel placeOrder unexpected failure"
 
     async def get_order_book(self) -> list[dict]:
         return await self._fetch_list("orderBook")

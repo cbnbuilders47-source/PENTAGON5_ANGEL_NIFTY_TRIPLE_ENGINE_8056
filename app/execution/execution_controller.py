@@ -161,15 +161,24 @@ class ExecutionController:
 
     async def approve_manual(self, approval_id: str) -> ExecutionResult:
         self._expire_manual_approvals()
-        approval = self._pending_manual.pop(approval_id, None)
+        approval = self._pending_manual.get(approval_id)
         if not approval:
-            return ExecutionResult(approval_id, "", ExecutionState.BLOCKED_BY_ENGINE_MODE, "Approval not found or expired")
+            self._state.clear_pending_approval(approval_id)
+            result = ExecutionResult(
+                approval_id, "", ExecutionState.BLOCKED_BY_ENGINE_MODE, "Approval not found or expired",
+            )
+            self._record(result)
+            return result
         lifecycle = OrderLifecycle()
         lifecycle.transition(ExecutionState.SIGNAL_RECEIVED)
         lifecycle.transition(ExecutionState.GATE_CHECKING)
         block = self._check_gates(approval.signal, EngineOperatingMode.MANUAL, lifecycle, skip_duplicate=True)
         if block:
-            return ExecutionResult(approval_id, approval.engine, lifecycle.state, block)
+            result = ExecutionResult(approval_id, approval.engine, lifecycle.state, block)
+            self._record(result)
+            return result
+        self._pending_manual.pop(approval_id, None)
+        self._state.clear_pending_approval(approval_id)
         self._track_manual(approval.engine, "user_approval_received")
         lifecycle.transition(ExecutionState.APPROVED)
         return await self._execute_live(approval_id, approval.signal, lifecycle, approval.lots, approval.quantity)
@@ -223,8 +232,18 @@ class ExecutionController:
         finally:
             self._exiting_engines.discard(engine)
 
+    def get_pending_approvals(self) -> list[dict]:
+        """Expire stale approvals and keep dashboard state in sync."""
+        self._expire_manual_approvals()
+        self._sync_pending_approvals_state()
+        return [a.to_dict() for a in self._pending_manual.values()]
+
+    def _sync_pending_approvals_state(self) -> None:
+        self._state.pending_approvals = [a.to_dict() for a in self._pending_manual.values()]
+
     def status(self) -> dict:
         self._expire_manual_approvals()
+        self._sync_pending_approvals_state()
         return {
             "recent": [r.to_dict() for r in self._recent_results[-20:]],
             "pending_manual": [a.to_dict() for a in self._pending_manual.values()],

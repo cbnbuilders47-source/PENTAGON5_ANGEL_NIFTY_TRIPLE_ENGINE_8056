@@ -1537,16 +1537,46 @@ function updateManualApprovals(approvals) {
   `).join("");
 }
 
+const EXECUTION_SUCCESS_STATES = new Set(["POSITION_ACTIVE", "EXIT_CONFIRMED"]);
+const EXECUTION_ERROR_STATES = new Set([
+  "ORDER_REJECTED",
+  "UNKNOWN_ORDER_STATE",
+  "BLOCKED_BY_RISK",
+  "BLOCKED_BY_BROKER",
+  "BLOCKED_BY_TIME",
+  "BLOCKED_BY_MARGIN",
+  "BLOCKED_BY_ENGINE_MODE",
+  "ORDER_TIMEOUT",
+  "RECOVERY_REQUIRED",
+]);
+
+function formatExecutionToast(data) {
+  const state = data?.state || "ERROR";
+  const message = data?.message || "Execution failed";
+  if (EXECUTION_SUCCESS_STATES.has(state)) {
+    return { type: "ok", text: `${state}: ${message}` };
+  }
+  if (EXECUTION_ERROR_STATES.has(state)) {
+    return { type: "error", text: `${state}: ${message}` };
+  }
+  return { type: "error", text: `${state}: ${message}` };
+}
+
 async function approveManual(id) {
   const res = await apiFetch("/execution/manual/approve", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ approval_id: id }),
   });
-  if (res.ok) {
-    showToast("Order approved", "ok");
-    refreshState();
+  let data = {};
+  try {
+    data = await res.json();
+  } catch (_) {
+    data = { state: "ERROR", message: "Invalid server response" };
   }
+  const toast = formatExecutionToast(data);
+  showToast(toast.text, toast.type);
+  refreshState();
 }
 async function rejectManual(id) {
   await apiFetch("/execution/manual/reject", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approval_id: id }) });

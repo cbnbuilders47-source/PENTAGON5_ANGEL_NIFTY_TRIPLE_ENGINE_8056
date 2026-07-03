@@ -22,6 +22,8 @@ router = APIRouter()
 @router.get("/state", response_model=StateResponse)
 async def get_state(request: Request) -> StateResponse:
     state = request.app.state.app_state
+    exec_ctrl = request.app.state.execution_controller
+    pending_approvals = exec_ctrl.get_pending_approvals()
     alloc = state.allocations
     return StateResponse(
         session_phase=state.session_phase,
@@ -62,7 +64,7 @@ async def get_state(request: Request) -> StateResponse:
         ],
         engine_modes=dict(state.engine_modes),
         live_positions=dict(state.live_positions),
-        pending_approvals=list(state.pending_approvals),
+        pending_approvals=pending_approvals,
         nifty_ltp=state.nifty_ltp,
         nifty_change_pts=state.nifty_change_pts,
         nifty_change_pct=state.nifty_change_pct,
