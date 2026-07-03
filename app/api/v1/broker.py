@@ -1,8 +1,15 @@
 """Broker status and session endpoints."""
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
 
 router = APIRouter()
+
+
+class RecoveryAssignRequest(BaseModel):
+    tradingsymbol: str
+    engine: str
+    token: str = ""
 
 
 @router.get("/status")
@@ -52,6 +59,36 @@ async def broker_recovery_resync(request: Request) -> dict:
     state = request.app.state.app_state
     return {
         "success": summary.get("clean", False),
+        "recovery": summary,
+        "live_positions": dict(state.live_positions),
+    }
+
+
+@router.post("/recovery/assign")
+async def broker_recovery_assign(request: Request, body: RecoveryAssignRequest) -> dict:
+    """Map an orphan broker leg to an engine, then resync recovery."""
+    from app.core.constants import ENGINES
+    from app.storage.recovery_assignment_store import RecoveryAssignmentStore
+
+    engine = body.engine.strip().lower()
+    if engine not in ENGINES:
+        raise HTTPException(status_code=400, detail=f"Unknown engine: {body.engine}")
+    symbol = body.tradingsymbol.strip().upper()
+    if not symbol:
+        raise HTTPException(status_code=400, detail="tradingsymbol required")
+
+    store = RecoveryAssignmentStore()
+    store.assign(symbol, engine)
+    if body.token:
+        store.assign(body.token.strip(), engine)
+
+    recovery = request.app.state.execution_recovery
+    summary = await recovery.resync()
+    state = request.app.state.app_state
+    return {
+        "assigned": True,
+        "tradingsymbol": symbol,
+        "engine": engine,
         "recovery": summary,
         "live_positions": dict(state.live_positions),
     }

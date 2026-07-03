@@ -2,7 +2,16 @@
 
 from fastapi import APIRouter, Request
 
+from app.storage.operator_settings_store import OperatorSettingsStore
+
 router = APIRouter()
+
+
+def _persist_supervised_auto(enabled: bool) -> None:
+    store = OperatorSettingsStore()
+    payload = store.load()
+    payload["supervised_auto_enabled"] = enabled
+    store.save(payload)
 
 
 @router.get("/status")
@@ -37,6 +46,7 @@ async def enable_supervised_auto(request: Request) -> dict:
     """Allow AUTO mode without manual 0/3 — supervised live validation only."""
     state = request.app.state.app_state
     state.supervised_auto_enabled = True
+    _persist_supervised_auto(True)
     return {"supervised_auto_enabled": True}
 
 
@@ -44,4 +54,5 @@ async def enable_supervised_auto(request: Request) -> dict:
 async def disable_supervised_auto(request: Request) -> dict:
     state = request.app.state.app_state
     state.supervised_auto_enabled = False
+    _persist_supervised_auto(False)
     return {"supervised_auto_enabled": False}

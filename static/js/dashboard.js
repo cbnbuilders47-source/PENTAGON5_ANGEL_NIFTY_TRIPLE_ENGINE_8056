@@ -1121,7 +1121,12 @@ function updateValidationStrip(op) {
   );
 
   const recClean = recovery.status === "clean" || recovery.status === "unknown";
-  set("val-recovery-status", `Recovery: ${(recovery.status || "unknown").toUpperCase()}`, recClean ? "ok" : "warn");
+  let recLabel = `Recovery: ${(recovery.status || "unknown").toUpperCase()}`;
+  if (recovery.status === "dirty" && recovery.unknown_details?.length) {
+    const leg = recovery.unknown_details[0];
+    recLabel += ` — ${leg.tradingsymbol || "?"} qty=${leg.qty ?? "?"}`;
+  }
+  set("val-recovery-status", recLabel, recClean ? "ok" : "warn");
 
   const desync = op?.broker_desync || {};
   if (desync.critical) {
@@ -1483,6 +1488,14 @@ async function setEngineMode(engine, mode, previousMode = null) {
     window.__lastDashboardState?.engine_modes?.[engine] ||
     "MONITOR";
 
+  if (mode === "AUTO") {
+    try {
+      await apiFetch("/validation/supervised-auto/enable", { method: "POST" });
+    } catch (_) {
+      /* best-effort — server may already have supervised AUTO */
+    }
+  }
+
   pendingModeChanges[engine] = true;
   syncEngineModeUI(engine, mode);
 
@@ -1679,9 +1692,18 @@ document.getElementById("btn-token")?.addEventListener("click", async () => {
 });
 
 document.getElementById("btn-sync-broker")?.addEventListener("click", async () => {
-  await apiFetch("/system/restart", { method: "POST" });
-  await Promise.all([refreshBroker(), refreshState(), refreshReadiness()]);
-  showToast("Broker sync refreshed", "ok");
+  const res = await apiFetch("/broker/recovery/resync", { method: "POST" });
+  const data = res.ok ? await res.json() : null;
+  await Promise.all([refreshBroker(), refreshState(), refreshOperator(), refreshReadiness()]);
+  if (data?.recovery?.status === "dirty") {
+    const unknown = data.recovery.unknown_details?.[0];
+    const hint = unknown
+      ? `DIRTY — orphan ${unknown.tradingsymbol} qty=${unknown.qty}. Use recovery assign or exit leg.`
+      : data.recovery.message || "Recovery dirty";
+    showToast(hint, "error");
+  } else {
+    showToast(data?.recovery?.status === "clean" ? "Broker sync — recovery CLEAN" : "Broker sync refreshed", "ok");
+  }
 });
 
 document.getElementById("btn-ws-reconnect")?.addEventListener("click", async () => {

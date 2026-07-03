@@ -27,6 +27,7 @@ from app.core.state import get_app_state
 from app.execution.execution_controller import ExecutionController
 from app.execution.recovery import ExecutionRecovery
 from app.storage.engine_mode_store import EngineModeStore
+from app.storage.operator_settings_store import OperatorSettingsStore
 from app.risk.exit_monitor import ExitMonitor
 from app.validation.manual_tracker import ManualValidationTracker
 from app.validation.validation_service import ProductionValidationService
@@ -65,6 +66,9 @@ async def lifespan(app: FastAPI):
     stored_modes = EngineModeStore().load()
     if stored_modes:
         app_state.hydrate_engine_modes(stored_modes)
+    operator_settings = OperatorSettingsStore().load()
+    if operator_settings.get("supervised_auto_enabled"):
+        app_state.supervised_auto_enabled = True
     token_manager = TokenManager()
     angel_manager = AngelManager(settings, token_manager)
     websocket_manager = WebSocketManager()

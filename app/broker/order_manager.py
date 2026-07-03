@@ -21,6 +21,8 @@ class OrderManager:
     def __init__(self, angel_manager: AngelManager, rate_limiter: RateLimitTracker) -> None:
         self._angel = angel_manager
         self._rate_limiter = rate_limiter
+        self._order_book_cache: list[dict] = []
+        self._trade_book_cache: list[dict] = []
 
     def _api(self):
         if not self._angel.smart_api:
@@ -163,14 +165,14 @@ class OrderManager:
             return detail or "Order failed", reason
         return "Order failed", "Angel placeOrder unexpected failure"
 
-    async def get_order_book(self) -> list[dict]:
-        return await self._fetch_list("orderBook")
+    async def get_order_book(self, *, bypass_rate_limit: bool = False) -> list[dict]:
+        return await self._fetch_list("orderBook", bypass_rate_limit=bypass_rate_limit)
 
-    async def get_trade_book(self) -> list[dict]:
-        return await self._fetch_list("tradeBook")
+    async def get_trade_book(self, *, bypass_rate_limit: bool = False) -> list[dict]:
+        return await self._fetch_list("tradeBook", bypass_rate_limit=bypass_rate_limit)
 
-    async def get_order_status(self, order_id: str) -> dict:
-        book = await self.get_order_book()
+    async def get_order_status(self, order_id: str, *, bypass_rate_limit: bool = False) -> dict:
+        book = await self.get_order_book(bypass_rate_limit=bypass_rate_limit)
         for row in book:
             if str(row.get("orderid")) == str(order_id):
                 return row
@@ -196,14 +198,14 @@ class OrderManager:
             return {"success": False, "message": "Invalid order id", "reconciled": True}
         elapsed = 0.0
         while elapsed < max_wait_sec:
-            status = await self.get_order_status(order_id)
+            status = await self.get_order_status(order_id, bypass_rate_limit=True)
             if not status:
                 await asyncio.sleep(0.5)
                 elapsed += 0.5
                 continue
             order_status = str(status.get("status", "")).lower()
             if order_status in ("complete", "filled"):
-                trades = await self.get_trade_book()
+                trades = await self.get_trade_book(bypass_rate_limit=True)
                 fill = extract_fill_details(status, trades, order_id)
                 price = fill.get("executed_price") or 0
                 filled_qty = int(fill.get("filled_qty") or 0)
@@ -225,21 +227,35 @@ class OrderManager:
                     "status": status,
                 }
             if order_status in ("rejected", "cancelled"):
-                return {"success": False, "message": f"Order {order_status}", "status": status, "reconciled": True}
+                return {
+                    "success": False,
+                    "message": self._order_rejection_message(status),
+                    "status": status,
+                    "reconciled": True,
+                }
             await asyncio.sleep(0.5)
             elapsed += 0.5
         return {"success": False, "message": "Order confirmation timeout"}
 
     async def reconcile_order_fill(self, order_id: str, expected_qty: int | None = None) -> dict:
-        """One-shot broker reconciliation after confirm timeout."""
+        """Broker reconciliation after confirm timeout — retries while Angel propagates order book."""
         if not is_valid_angel_order_id(order_id):
             return {"success": False, "message": "Invalid order id", "reconciled": True}
-        status = await self.get_order_status(order_id)
-        if not status:
-            return {"success": False, "message": "Order not found in Angel order book", "reconciled": False}
+        for attempt in range(6):
+            status = await self.get_order_status(order_id, bypass_rate_limit=True)
+            if status:
+                await self.get_trade_book(bypass_rate_limit=True)
+                result = self._reconcile_status(status, order_id, expected_qty)
+                if result.get("reconciled") or result.get("success"):
+                    return result
+            if attempt < 5:
+                await asyncio.sleep(0.5)
+        return {"success": False, "message": "Order not found in Angel order book", "reconciled": False}
+
+    def _reconcile_status(self, status: dict, order_id: str, expected_qty: int | None) -> dict:
         order_status = str(status.get("status", "")).lower()
         if order_status in ("complete", "filled"):
-            trades = await self.get_trade_book()
+            trades = self._trade_book_cache
             fill = extract_fill_details(status, trades, order_id)
             price = fill.get("executed_price") or 0
             filled_qty = int(fill.get("filled_qty") or 0)
@@ -268,7 +284,7 @@ class OrderManager:
         if order_status in ("rejected", "cancelled"):
             return {
                 "success": False,
-                "message": f"Order {order_status}",
+                "message": self._order_rejection_message(status),
                 "status": status,
                 "reconciled": True,
             }
@@ -279,15 +295,35 @@ class OrderManager:
             "reconciled": False,
         }
 
-    async def _fetch_list(self, method: str) -> list[dict]:
-        if self._rate_limiter.is_limited:
+    @staticmethod
+    def _order_rejection_message(status: dict) -> str:
+        text = str(status.get("text") or status.get("message") or "").strip()
+        order_status = str(status.get("status", "")).lower()
+        if text:
+            return text
+        return f"Order {order_status}"
+
+    async def _fetch_list(self, method: str, *, bypass_rate_limit: bool = False) -> list[dict]:
+        cache_attr = "_order_book_cache" if method == "orderBook" else "_trade_book_cache"
+        cached: list[dict] = getattr(self, cache_attr)
+        if self._rate_limiter.is_limited and not bypass_rate_limit:
+            if cached:
+                logger.warning("%s rate-limited — using cached book (%s rows)", method, len(cached))
+                return list(cached)
             return []
         try:
-            self._rate_limiter.record_call()
+            if not bypass_rate_limit:
+                self._rate_limiter.record_call()
             response = await asyncio.to_thread(getattr(self._api(), method))
             if response and response.get("status"):
                 data = response.get("data", [])
-                return data if isinstance(data, list) else []
+                rows = data if isinstance(data, list) else []
+                if rows:
+                    setattr(self, cache_attr, rows)
+                return rows
         except Exception as exc:
             logger.error("%s fetch failed: %s", method, exc)
+        if cached:
+            logger.warning("%s fetch failed — using cached book (%s rows)", method, len(cached))
+            return list(cached)
         return []

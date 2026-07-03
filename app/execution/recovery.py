@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from app.broker.broker_verify import (
     extract_fill_details,
     find_broker_open_leg,
@@ -15,7 +17,9 @@ from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.core.state import AppState
 from app.dashboard.sync import assess_broker_desync
+from app.storage.order_engine_registry import OrderEngineRegistry
 from app.storage.position_store import PositionStore
+from app.storage.recovery_assignment_store import RecoveryAssignmentStore
 
 logger = get_logger(__name__)
 
@@ -29,11 +33,15 @@ class ExecutionRecovery:
         order_manager: OrderManager,
         position_manager: PositionManager,
         position_store: PositionStore | None = None,
+        order_registry: OrderEngineRegistry | None = None,
+        assignment_store: RecoveryAssignmentStore | None = None,
     ) -> None:
         self._state = state
         self._orders = order_manager
         self._positions = position_manager
         self._store = position_store or PositionStore()
+        self._order_registry = order_registry or OrderEngineRegistry()
+        self._assignments = assignment_store or RecoveryAssignmentStore()
 
     async def recover(self) -> dict:
         return await self._run_resync(clear_stale_snapshot=True)
@@ -94,7 +102,11 @@ class ExecutionRecovery:
         for bp in open_broker:
             token = str(bp.get("symboltoken") or "")
             symbol = str(bp.get("tradingsymbol") or "")
-            engine = _resolve_engine(bp, snapshot, orders, trades, self._state.execution_results)
+            engine = _resolve_engine(
+                bp, snapshot, orders, trades, self._state.execution_results,
+                order_registry=self._order_registry,
+                assignment_store=self._assignments,
+            )
             buy_order = find_complete_buy_order(orders, token, symbol)
             if engine not in _VALID_ENGINES:
                 unknown += 1
@@ -223,9 +235,17 @@ def _resolve_engine(
     orders: list[dict],
     trades: list[dict],
     execution_results: list[dict],
+    *,
+    order_registry: OrderEngineRegistry | None = None,
+    assignment_store: RecoveryAssignmentStore | None = None,
 ) -> str | None:
     token = str(broker_pos.get("symboltoken") or "")
     symbol = str(broker_pos.get("tradingsymbol") or "")
+
+    if assignment_store:
+        assigned = assignment_store.resolve_engine(token=token, tradingsymbol=symbol)
+        if assigned in _VALID_ENGINES:
+            return assigned
 
     for engine, snap in snapshot.items():
         if token and str(snap.get("token")) == token:
@@ -240,12 +260,79 @@ def _resolve_engine(
     buy = find_complete_buy_order(orders, token, symbol)
     if buy:
         oid = str(buy.get("orderid"))
+        if order_registry:
+            reg_engine = order_registry.resolve_engine(oid)
+            if reg_engine in _VALID_ENGINES:
+                return reg_engine
         for result in reversed(execution_results):
             if str(result.get("order_id") or "") == oid:
                 eng = result.get("engine")
                 if eng in _VALID_ENGINES:
                     return eng
+        audit_engine = _engine_from_audit_log(oid=oid, tradingsymbol=symbol)
+        if audit_engine in _VALID_ENGINES:
+            return audit_engine
 
+    for trade in reversed(trades):
+        row_symbol = str(trade.get("tradingsymbol") or "").upper()
+        row_token = str(trade.get("symboltoken") or "")
+        if symbol and row_symbol != symbol.upper() and token and row_token != token:
+            continue
+        if not ((symbol and row_symbol == symbol.upper()) or (token and row_token == token)):
+            continue
+        if str(trade.get("transactiontype") or "").upper() != "BUY":
+            continue
+        oid = str(trade.get("orderid") or "")
+        if not oid:
+            continue
+        if order_registry:
+            reg_engine = order_registry.resolve_engine(oid)
+            if reg_engine in _VALID_ENGINES:
+                return reg_engine
+        for result in reversed(execution_results):
+            if str(result.get("order_id") or "") == oid:
+                eng = result.get("engine")
+                if eng in _VALID_ENGINES:
+                    return eng
+        audit_engine = _engine_from_audit_log(oid=oid, tradingsymbol=symbol)
+        if audit_engine in _VALID_ENGINES:
+            return audit_engine
+
+    return _engine_from_audit_log(tradingsymbol=symbol)
+
+
+def _engine_from_audit_log(*, oid: str = "", tradingsymbol: str = "") -> str | None:
+    """Best-effort engine inference from execution_audit.log."""
+    if not oid and not tradingsymbol:
+        return None
+    settings = get_settings()
+    audit_path = settings.logs_dir / "execution_audit.log"
+    if not audit_path.exists():
+        return None
+    symbol_key = tradingsymbol.upper()
+    try:
+        lines = audit_path.read_text(encoding="utf-8", errors="ignore").splitlines()[-4000:]
+    except OSError:
+        return None
+    for line in reversed(lines):
+        if oid and oid not in line:
+            if symbol_key and symbol_key not in line.upper():
+                continue
+        elif symbol_key and symbol_key not in line.upper():
+            continue
+        if "'engine':" not in line and '"engine":' not in line:
+            continue
+        match = re.search(r"['\"]engine['\"]\s*:\s*['\"](\w+)['\"]", line)
+        if not match:
+            continue
+        eng = match.group(1)
+        if eng in _VALID_ENGINES:
+            if oid and oid in line:
+                return eng
+            if symbol_key and symbol_key in line.upper() and "exec_pipeline" in line:
+                return eng
+            if symbol_key and symbol_key in line.upper() and "POSITION_ACTIVE" in line:
+                return eng
     return None
 
 

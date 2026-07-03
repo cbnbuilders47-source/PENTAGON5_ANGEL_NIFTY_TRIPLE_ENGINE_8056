@@ -30,6 +30,7 @@ from app.models.enums import EngineOperatingMode, EngineStatus, ExecutionState, 
 from app.risk.locks import TradingLocks
 from app.risk.risk_manager import RiskManager
 from app.scheduler.session_scheduler import SessionScheduler
+from app.storage.order_engine_registry import OrderEngineRegistry
 from app.validation.manual_tracker import ManualValidationTracker
 from app.validation.validation_service import ProductionValidationService
 from app.storage.position_store import PositionStore
@@ -68,6 +69,7 @@ class ExecutionController:
         self._recent_results: list[ExecutionResult] = []
         self._manual = manual_tracker
         self._validation = validation_service
+        self._order_registry = OrderEngineRegistry()
         self._margin = margin_manager
         self._position_store = position_store or PositionStore()
         self._exit_all_in_progress = False
@@ -426,6 +428,7 @@ class ExecutionController:
             "8_angel_response", request_id, signal.engine, mode,
             success=True, order_id=order_id, latency_ms=latency,
         )
+        self._order_registry.register(order_id, signal.engine, signal.tradingsymbol)
         lifecycle.transition(ExecutionState.ORDER_PENDING)
         confirmed = await self._orders.confirm_order_execution(order_id, expected_qty=qty)
         if not confirmed.get("success"):
