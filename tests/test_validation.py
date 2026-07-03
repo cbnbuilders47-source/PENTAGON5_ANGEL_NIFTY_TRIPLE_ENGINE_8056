@@ -89,6 +89,36 @@ def test_manual_validation_reset(client):
     assert res.json()["reset"] is True
 
 
+def test_validation_runtime_reset_clears_manual_progress(client):
+    tracker = client.app.state.manual_validation_tracker
+    for step in MANUAL_STEPS:
+        tracker.mark("normal", step)
+        tracker.mark("wick", step)
+        tracker.mark("ultra", step)
+    assert tracker.any_passed()
+
+    state = client.app.state.app_state
+    state.set_live_position("wick", {
+        "engine": "wick", "token": "44649", "tradingsymbol": "NIFTY07JUL2624350CE",
+        "quantity": 65, "entry_price": 85.0, "broker_verified": True,
+    })
+    state.execution_results.append({"engine": "wick", "state": "POSITION_ACTIVE", "order_id": REAL_ORDER_ID})
+    state.execution_events.append({"event": "BUY", "engine": "wick"})
+
+    res = client.post("/api/v1/validation/reset")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["reset"] is True
+    assert data["manual_passed_count"] == 0
+    assert data["manual_validation_status"]["normal_manual_cycle_passed"] is False
+    assert data["manual_validation_status"]["wick_manual_cycle_passed"] is False
+    assert data["manual_validation_status"]["ultra_manual_cycle_passed"] is False
+    assert "wick" in data["live_positions_preserved"]
+    assert state.execution_results == []
+    assert state.execution_events == []
+    assert not tracker.any_passed()
+
+
 def test_auto_blocked_before_manual_validation():
     _, _, svc, ctrl = _validation_stack()
     reason = ctrl.set_engine_mode("normal", EngineOperatingMode.AUTO)

@@ -198,6 +198,24 @@ class ProductionValidationService:
             "reconnect_status": dict(self._state.reconnect_status),
         }
 
+    def reset_validation_runtime(self, execution_controller) -> dict:
+        """Reset manual validation progress and execution validation artifacts."""
+        self._manual.reset()
+        pending_cleared = execution_controller.reset_manual_validation_state()
+        self._state.reset_execution_validation_state()
+        manual = self.manual_status()
+        passed_count = sum(1 for e in ("normal", "wick", "ultra") if manual.get(f"{e}_manual_cycle_passed"))
+        return {
+            "reset": True,
+            "manual_validation_reset": True,
+            "pending_approvals_cleared": pending_cleared,
+            "execution_validation_cleared": True,
+            "manual_passed_count": passed_count,
+            "manual_validation_status": manual,
+            "validation_status": self.status(),
+            "live_positions_preserved": dict(self._state.live_positions),
+        }
+
     def _feed_fresh(self, symbol: str, now: datetime) -> bool:
         last = self._candles.get_last_tick_at(symbol)
         if not last:

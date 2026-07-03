@@ -256,6 +256,16 @@ class ExecutionController:
         self._sync_pending_approvals_state()
         return [a.to_dict() for a in self._pending_manual.values()]
 
+    def reset_manual_validation_state(self) -> int:
+        """Clear pending manual approvals and recent execution results."""
+        self._expire_manual_approvals()
+        cleared = len(self._pending_manual)
+        self._pending_manual.clear()
+        self._state.pending_approvals = []
+        self._recent_results.clear()
+        self._state.last_updated = datetime.now()
+        return cleared
+
     def _sync_pending_approvals_state(self) -> None:
         self._state.pending_approvals = [a.to_dict() for a in self._pending_manual.values()]
 

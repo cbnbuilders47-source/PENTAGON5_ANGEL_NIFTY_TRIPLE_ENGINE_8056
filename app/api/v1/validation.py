@@ -24,6 +24,14 @@ async def reset_manual_validation(request: Request, engine: str | None = None) -
     return {"reset": True, "engine": engine or "all"}
 
 
+@router.post("/reset")
+async def reset_validation_runtime(request: Request) -> dict:
+    """Reset manual validation 0/3, pending approvals, and execution validation state."""
+    svc = request.app.state.validation_service
+    exec_ctrl = request.app.state.execution_controller
+    return svc.reset_validation_runtime(exec_ctrl)
+
+
 @router.post("/supervised-auto/enable")
 async def enable_supervised_auto(request: Request) -> dict:
     """Allow AUTO mode without manual 0/3 — supervised live validation only."""

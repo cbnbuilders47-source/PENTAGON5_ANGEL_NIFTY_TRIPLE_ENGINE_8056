@@ -1704,8 +1704,16 @@ document.getElementById("btn-reload-expiry")?.addEventListener("click", () => {
   showToast("Expiry reload — connect broker first", "info");
 });
 
-document.getElementById("btn-reset-stats")?.addEventListener("click", () => {
-  showToast("Daily stats reset not configured", "info");
+document.getElementById("btn-reset-stats")?.addEventListener("click", async () => {
+  const res = await apiFetch("/validation/reset", { method: "POST" });
+  if (!res.ok) {
+    showToast("Validation reset failed", "error");
+    return;
+  }
+  const data = await res.json();
+  const passed = data.manual_passed_count ?? 0;
+  showToast(`Manual validation reset — ${passed}/3 passed`, "ok");
+  await refreshDashboardPanels();
 });
 
 document.getElementById("btn-clear-storage")?.addEventListener("click", () => {

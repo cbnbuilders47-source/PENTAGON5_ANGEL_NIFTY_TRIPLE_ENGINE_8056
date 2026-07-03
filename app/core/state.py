@@ -321,6 +321,20 @@ class AppState:
             self.validation_last_success = datetime.now()
             self.last_updated = datetime.now()
 
+    def clear_validation_success(self) -> None:
+        with self._lock:
+            self.validation_last_success = None
+            self.last_updated = datetime.now()
+
+    def reset_execution_validation_state(self) -> None:
+        """Clear in-memory execution/validation artifacts (not live positions or trade PnL)."""
+        with self._lock:
+            self.execution_results = []
+            self.execution_events = []
+            self.pending_approvals = []
+            self.validation_last_success = None
+            self.last_updated = datetime.now()
+
     def update_nifty_quote(self, ltp: float) -> None:
         with self._lock:
             if self.nifty_ltp > 0:
