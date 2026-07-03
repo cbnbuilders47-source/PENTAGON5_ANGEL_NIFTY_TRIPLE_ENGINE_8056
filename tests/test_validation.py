@@ -178,9 +178,10 @@ async def test_recovery_status_clean():
     orders.get_order_book.return_value = []
     orders.get_trade_book.return_value = []
     positions = AsyncMock()
-    positions.sync_positions.return_value = [
-        {"symboltoken": "12345", "tradingsymbol": "NIFTY24JUL25000CE", "netqty": "65", "exchange": "NFO"},
-    ]
+    positions.sync_positions_with_status.return_value = (
+        [{"symboltoken": "12345", "tradingsymbol": "NIFTY24JUL25000CE", "netqty": "65", "exchange": "NFO"}],
+        True,
+    )
     store = MagicMock()
     store.load.return_value = {
         "normal": {
@@ -211,9 +212,10 @@ async def test_recovery_status_dirty_on_unknown():
     orders.get_order_book.return_value = []
     orders.get_trade_book.return_value = []
     positions = AsyncMock()
-    positions.sync_positions.return_value = [
-        {"symboltoken": "99999", "tradingsymbol": "UNKNOWN", "netqty": "65"},
-    ]
+    positions.sync_positions_with_status.return_value = (
+        [{"symboltoken": "99999", "tradingsymbol": "UNKNOWN", "netqty": "65"}],
+        True,
+    )
     store = MagicMock()
     store.load.return_value = {}
     recovery = ExecutionRecovery(state, orders, positions, position_store=store)

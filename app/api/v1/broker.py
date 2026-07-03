@@ -42,3 +42,16 @@ async def broker_readiness(request: Request) -> dict:
     gate = request.app.state.readiness_gate
     report = gate.evaluate()
     return report.to_dict()
+
+
+@router.post("/recovery/resync")
+async def broker_recovery_resync(request: Request) -> dict:
+    """Sync broker positions with AppState and refresh recovery status."""
+    recovery = request.app.state.execution_recovery
+    summary = await recovery.resync()
+    state = request.app.state.app_state
+    return {
+        "success": summary.get("clean", False),
+        "recovery": summary,
+        "live_positions": dict(state.live_positions),
+    }

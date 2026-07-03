@@ -161,7 +161,14 @@ class ProductionValidationService:
 
         recovery = self._state.recovery_status
         if recovery.get("status") == "dirty":
-            return AutoGateResult(False, "Recovery check required")
+            detail = recovery.get("message") or "dirty"
+            unknowns = recovery.get("unknown_details") or []
+            if unknowns:
+                legs = ", ".join(
+                    f"{u.get('tradingsymbol', '?')} qty={u.get('qty', '?')}" for u in unknowns[:3]
+                )
+                detail = f"{detail}: {legs}"
+            return AutoGateResult(False, f"Recovery check required — {detail}")
 
         if self._state.kill_switch_active:
             return AutoGateResult(False, "Kill switch active")
