@@ -76,6 +76,19 @@ let logFilterText = "";
 let cachedLogLines = [];
 let pendingApprovalsMap = {};
 let passwordModalResolver = null;
+let stateFetchSeq = 0;
+const pendingModeChanges = {};
+
+function syncEngineModeUI(engine, mode) {
+  const sel = document.querySelector(`.mode-select[data-engine="${engine}"]`);
+  if (sel) {
+    sel.value = mode;
+    sel.dataset.confirmedMode = mode;
+    sel.dataset.lastMode = mode;
+  }
+  const modeEl = document.querySelector(`.engine-mode[data-engine="${engine}"]`);
+  if (modeEl) modeEl.textContent = mode;
+}
 
 const btnConnect = document.getElementById("btn-connect");
 const btnDisconnect = document.getElementById("btn-disconnect");
@@ -1247,10 +1260,12 @@ document.getElementById("btn-export-logs")?.addEventListener("click", () => {
 // ── State ──────────────────────────────────────────────────
 
 async function refreshState() {
+  const seq = ++stateFetchSeq;
   try {
     const res = await apiFetch("/dashboard/state");
-    if (!res.ok) return;
+    if (!res.ok || seq !== stateFetchSeq) return;
     const state = await res.json();
+    if (seq !== stateFetchSeq) return;
     window.__lastDashboardState = state;
 
     setBrokerUI(state.broker_connected, state.websocket_connected, lastOperatorData?.reconnect_status);
@@ -1267,10 +1282,8 @@ async function refreshState() {
 
     if (state.engine_modes) {
       Object.entries(state.engine_modes).forEach(([eng, mode]) => {
-        const sel = document.querySelector(`.mode-select[data-engine="${eng}"]`);
-        if (sel) sel.value = mode;
-        const modeEl = document.querySelector(`.engine-mode[data-engine="${eng}"]`);
-        if (modeEl) modeEl.textContent = mode;
+        if (pendingModeChanges[eng]) return;
+        syncEngineModeUI(eng, mode);
       });
     }
 
@@ -1422,36 +1435,66 @@ async function requireDashboardWakeup() {
 
 // ── Engine mode controls ───────────────────────────────────
 
-async function setEngineMode(engine, mode) {
-  const res = await apiFetch(`/engine/${engine}/mode`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode }),
-  });
-  if (res.status === 403) {
-    const data = await res.json();
-    const reason = data.detail?.reason || data.detail || "Action blocked";
-    showToast(`${engine}: ${reason}`, "error");
-    refreshState();
+async function setEngineMode(engine, mode, previousMode = null) {
+  const priorMode =
+    previousMode ||
+    document.querySelector(`.mode-select[data-engine="${engine}"]`)?.dataset.confirmedMode ||
+    window.__lastDashboardState?.engine_modes?.[engine] ||
+    "MONITOR";
+
+  pendingModeChanges[engine] = true;
+  syncEngineModeUI(engine, mode);
+
+  try {
+    const res = await apiFetch(`/engine/${engine}/mode`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode }),
+    });
+    if (res.status === 403) {
+      const data = await res.json();
+      const reason = data.detail?.reason || data.detail || "Action blocked";
+      syncEngineModeUI(engine, priorMode);
+      showToast(`${engine}: ${reason}`, "error");
+      await refreshState();
+      return false;
+    }
+    if (res.ok) {
+      const data = await res.json();
+      syncEngineModeUI(engine, data.mode || mode);
+      showToast(`${engine} → ${data.mode || mode}`, "ok");
+      await refreshState();
+      return true;
+    }
+    syncEngineModeUI(engine, priorMode);
+    showToast(`${engine}: mode change failed`, "error");
     return false;
+  } finally {
+    delete pendingModeChanges[engine];
   }
-  if (res.ok) { showToast(`${engine} → ${mode}`, "ok"); refreshState(); return true; }
-  return false;
 }
 
 document.querySelectorAll(".mode-select").forEach((sel) => {
   sel.addEventListener("change", () => {
     const mode = sel.value;
-    sel.dataset.lastMode = mode;
-    setEngineMode(sel.dataset.engine, mode);
+    const previousMode = sel.dataset.confirmedMode || sel.dataset.lastMode || "MONITOR";
+    setEngineMode(sel.dataset.engine, mode, previousMode);
   });
 });
 
 document.querySelectorAll(".eng-btn-auto").forEach((btn) => {
-  btn.addEventListener("click", () => setEngineMode(btn.dataset.engine, "AUTO"));
+  btn.addEventListener("click", () => {
+    const engine = btn.dataset.engine;
+    const previousMode =
+      document.querySelector(`.mode-select[data-engine="${engine}"]`)?.dataset.confirmedMode || "MONITOR";
+    setEngineMode(engine, "AUTO", previousMode);
+  });
 });
 document.querySelectorAll(".eng-btn-manual").forEach((btn) => {
-  btn.addEventListener("click", () => setEngineMode(btn.dataset.engine, "MANUAL"));
+  btn.addEventListener("click", () => {
+    const engine = btn.dataset.engine;
+    setEngineMode(engine, "MANUAL");
+  });
 });
 document.querySelectorAll(".eng-btn-stop").forEach((btn) => {
   btn.addEventListener("click", async () => {
@@ -1462,7 +1505,7 @@ document.querySelectorAll(".eng-btn-stop").forEach((btn) => {
 document.querySelectorAll(".eng-btn-start").forEach((btn) => {
   btn.addEventListener("click", async () => {
     await apiFetch(`/engine/${btn.dataset.engine}/start`, { method: "POST" });
-    setEngineMode(btn.dataset.engine, "MONITOR");
+    await setEngineMode(btn.dataset.engine, "MONITOR");
   });
 });
 document.querySelectorAll(".eng-btn-exit").forEach((btn) => {
